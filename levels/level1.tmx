@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="20" height="14" tilewidth="50" tileheight="50" infinite="0" nextlayerid="9" nextobjectid="16">
+ <tileset firstgid="1" source="../assets/sprites.tsx"/>
+ <imagelayer id="7" name="background">
+  <image source="../assets/level-bg.png" width="1000" height="700"/>
+ </imagelayer>
+ <layer id="1" name="Tile Layer 1" width="20" height="14">
+  <data encoding="csv">
+0,0,0,0,16,0,0,0,0,0,0,0,0,16,0,0,0,0,0,0,
+17,17,17,17,14,0,0,0,0,0,0,0,0,16,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,0,0,0,0,0,
+17,17,17,14,0,0,0,0,0,0,0,0,0,18,17,17,17,17,17,17,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,18,17,14,0,0,0,0,0,0,
+17,17,17,17,17,14,0,0,18,17,17,16,16,16,0,18,17,17,17,17,
+0,0,0,0,0,16,0,0,16,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,16,0,0,16,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,16,0,0,16,17,17,17,14,0,18,17,17,17,17,17,
+0,0,0,0,0,16,0,0,16,0,0,0,16,0,16,0,0,0,0,0,
+17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17
+</data>
+ </layer>
+ <objectgroup id="8" name="Object Layer 1">
+  <object id="7" gid="5" x="50" y="200" width="50" height="50"/>
+  <object id="8" gid="8" x="450" y="550" width="50" height="50"/>
+  <object id="9" gid="1" x="50" y="400" width="50" height="50"/>
+ </objectgroup>
+</map>
