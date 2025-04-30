@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="20" height="14" tilewidth="50" tileheight="50" infinite="0" nextlayerid="4" nextobjectid="4">
+<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="20" height="14" tilewidth="50" tileheight="50" infinite="0" nextlayerid="4" nextobjectid="10">
  <tileset firstgid="1" source="../assets/sprites.tsx"/>
  <imagelayer id="2" name="background">
   <image source="../assets/level-bg.png" width="1000" height="700"/>
  </imagelayer>
  <layer id="1" name="Tile Layer 1" width="20" height="14">
   <data encoding="csv">
-16,16,16,16,0,0,0,0,0,31,0,0,0,0,0,0,16,16,16,16,
+16,16,16,16,0,0,0,0,0,29,0,0,0,0,0,0,16,16,16,16,
 16,0,0,0,0,0,0,16,0,0,0,16,0,0,0,0,0,0,0,16,
-16,0,0,30,0,0,0,16,16,16,16,16,30,0,0,0,0,30,0,16,
-16,0,0,0,0,30,0,0,16,16,16,0,0,0,0,30,0,0,0,16,
-0,30,0,0,0,0,0,30,16,16,16,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,16,16,16,0,30,0,0,0,0,0,30,0,
-0,0,0,30,0,0,0,0,16,31,16,0,0,0,30,0,0,0,0,0,
-0,0,0,0,0,30,27,0,16,0,16,27,0,0,0,0,30,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,30,
-30,0,30,0,0,26,0,0,0,30,0,0,0,26,0,0,0,0,0,0,
+16,0,0,28,0,0,0,16,16,16,16,16,28,0,0,0,0,28,0,16,
+16,0,0,0,0,28,0,0,16,16,16,0,0,0,0,28,0,0,0,16,
+0,28,0,0,0,0,0,28,16,16,16,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,16,16,16,0,28,0,0,0,0,0,28,0,
+0,0,0,28,0,0,0,0,16,29,16,0,0,0,28,0,0,0,0,0,
+0,0,0,0,0,28,0,0,16,0,16,0,0,0,0,0,28,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,28,
+28,0,28,0,0,0,0,0,0,28,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-18,17,17,17,25,17,17,17,17,17,17,17,17,17,25,17,17,17,17,14,
+18,17,17,17,0,17,17,17,17,17,17,17,17,17,0,17,17,17,17,14,
 16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16
 </data>
  </layer>
@@ -26,5 +26,47 @@
   <object id="1" gid="3" x="100" y="600" width="50" height="50"/>
   <object id="2" gid="3" x="900" y="600" width="50" height="50"/>
   <object id="3" gid="8" x="450" y="100" width="50" height="50"/>
+  <object id="4" gid="27" x="300" y="400" width="50" height="50">
+   <properties>
+    <property name="down" type="int" value="2"/>
+    <property name="initial_speed" type="int" value="-1"/>
+    <property name="speed" type="int" value="1"/>
+    <property name="up" type="int" value="3"/>
+   </properties>
+  </object>
+  <object id="5" gid="27" x="550" y="400" width="50" height="50">
+   <properties>
+    <property name="down" type="int" value="2"/>
+    <property name="initial_speed" type="int" value="-1"/>
+    <property name="speed" type="int" value="1"/>
+    <property name="up" type="int" value="3"/>
+   </properties>
+  </object>
+  <object id="6" gid="26" x="650" y="500" width="50" height="50">
+   <properties>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="left" type="int" value="2"/>
+    <property name="right" type="int" value="0"/>
+    <property name="speed" type="int" value="1"/>
+   </properties>
+  </object>
+  <object id="7" gid="26" x="250" y="500" width="50" height="50">
+   <properties>
+    <property name="initial_speed" type="int" value="-1"/>
+    <property name="left" type="int" value="2"/>
+    <property name="right" type="int" value="0"/>
+    <property name="speed" type="int" value="1"/>
+   </properties>
+  </object>
+  <object id="8" gid="25" x="700" y="650" width="50" height="50">
+   <properties>
+    <property name="bounce_height" type="int" value="5"/>
+   </properties>
+  </object>
+  <object id="9" gid="25" x="200" y="650" width="50" height="50">
+   <properties>
+    <property name="bounce_height" type="int" value="5"/>
+   </properties>
+  </object>
  </objectgroup>
 </map>

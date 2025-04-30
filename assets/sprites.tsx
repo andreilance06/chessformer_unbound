@@ -79,10 +79,10 @@
  <tile id="26">
   <image source="updown_block.png" width="50" height="50"/>
  </tile>
- <tile id="29">
+ <tile id="27">
   <image source="phase_block.png" width="50" height="50"/>
  </tile>
- <tile id="30">
+ <tile id="28">
   <image source="tp_block.png" width="50" height="50"/>
  </tile>
 </tileset>

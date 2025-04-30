@@ -8,14 +8,14 @@
   <data encoding="csv">
 16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,
 16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
-16,0,0,0,0,30,0,0,0,26,0,0,0,0,0,0,0,30,0,16,
+16,0,0,0,0,28,0,0,0,26,0,0,0,0,0,0,0,28,0,16,
 16,0,0,0,0,0,0,0,0,0,0,0,0,26,0,0,0,0,0,16,
 16,20,20,20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
-16,0,0,0,0,0,30,0,0,0,0,26,0,0,0,0,30,0,0,16,
-16,0,30,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
+16,0,0,0,0,0,28,0,0,0,0,26,0,0,0,0,28,0,0,16,
+16,0,28,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
 16,0,0,0,0,0,0,0,27,0,0,0,0,26,0,0,0,0,0,16,
-16,0,0,0,30,0,0,0,0,0,0,0,0,0,0,0,26,0,0,16,
-16,0,0,0,0,0,0,0,0,0,0,30,0,0,0,0,0,0,0,16,
+16,0,0,0,28,0,0,0,0,0,0,0,0,0,0,0,26,0,0,16,
+16,0,0,0,0,0,0,0,0,0,0,28,0,0,0,0,0,0,0,16,
 16,0,0,0,0,0,27,0,0,0,0,0,0,0,27,0,0,0,0,16,
 16,0,0,0,0,0,0,0,0,0,0,26,0,0,0,0,0,0,0,16,
 16,0,0,0,0,0,0,0,0,27,0,0,0,0,0,0,0,0,0,16,
@@ -26,5 +26,85 @@
   <object id="1" gid="8" x="50" y="200" width="50" height="50"/>
   <object id="2" gid="4" x="250" y="650" width="50" height="50"/>
   <object id="3" gid="4" x="100" y="650" width="50" height="50"/>
+  <object id="4" gid="26" x="450" y="150" width="50" height="50">
+   <properties>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="left" type="int" value="2"/>
+    <property name="right" type="int" value="2"/>
+    <property name="speed" type="int" value="1"/>
+   </properties>
+  </object>
+  <object id="10" gid="26" x="650" y="200" width="50" height="50">
+   <properties>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="left" type="int" value="2"/>
+    <property name="right" type="int" value="2"/>
+    <property name="speed" type="int" value="1"/>
+   </properties>
+  </object>
+  <object id="11" gid="26" x="550" y="300" width="50" height="50">
+   <properties>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="left" type="int" value="2"/>
+    <property name="right" type="int" value="2"/>
+    <property name="speed" type="int" value="1"/>
+   </properties>
+  </object>
+  <object id="12" gid="26" x="650" y="400" width="50" height="50">
+   <properties>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="left" type="int" value="2"/>
+    <property name="right" type="int" value="2"/>
+    <property name="speed" type="int" value="1"/>
+   </properties>
+  </object>
+  <object id="13" gid="26" x="800" y="450" width="50" height="50">
+   <properties>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="left" type="int" value="2"/>
+    <property name="right" type="int" value="2"/>
+    <property name="speed" type="int" value="1"/>
+   </properties>
+  </object>
+  <object id="14" gid="26" x="550" y="600" width="50" height="50">
+   <properties>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="left" type="int" value="2"/>
+    <property name="right" type="int" value="2"/>
+    <property name="speed" type="int" value="1"/>
+   </properties>
+  </object>
+  <object id="15" gid="27" x="450" y="650" width="50" height="50">
+   <properties>
+    <property name="down" type="int" value="2"/>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="speed" type="int" value="1"/>
+    <property name="up" type="int" value="2"/>
+   </properties>
+  </object>
+  <object id="16" gid="27" x="300" y="550" width="50" height="50">
+   <properties>
+    <property name="down" type="int" value="2"/>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="speed" type="int" value="1"/>
+    <property name="up" type="int" value="2"/>
+   </properties>
+  </object>
+  <object id="17" gid="27" x="400" y="400" width="50" height="50">
+   <properties>
+    <property name="down" type="int" value="2"/>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="speed" type="int" value="1"/>
+    <property name="up" type="int" value="2"/>
+   </properties>
+  </object>
+  <object id="18" gid="27" x="700" y="550" width="50" height="50">
+   <properties>
+    <property name="down" type="int" value="2"/>
+    <property name="initial_speed" type="int" value="1"/>
+    <property name="speed" type="int" value="1"/>
+    <property name="up" type="int" value="2"/>
+   </properties>
+  </object>
  </objectgroup>
 </map>
