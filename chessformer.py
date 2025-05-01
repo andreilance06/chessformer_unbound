@@ -1,6 +1,6 @@
 import math
-from enum import IntEnum
-from typing import Dict, Generator, List, Optional, Tuple, Union
+from enum import IntEnum, auto
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
 import pygame
 import pymunk
@@ -34,17 +34,17 @@ PHYSICS_ITERATIONS = int(20000 / FPS)
 
 # Game states
 class State(IntEnum):
-    MENU = 1
-    LEVEL_SELECT = 2
-    PLAYING = 3
+    MENU = auto()
+    LEVEL_SELECT = auto()
+    PLAYING = auto()
 
 
 class Collision(IntEnum):
-    DEFAULT = 0
-    PIECE = 1
-    SPIKE = 2
-    BOUNCY = 3
-    PASSTHROUGH = 4
+    DEFAULT = auto()
+    PIECE = auto()
+    SPIKE = auto()
+    BOUNCY = auto()
+    PASSTHROUGH = auto()
 
 
 class GameEngine:
@@ -72,7 +72,7 @@ class GameEngine:
             Collision.PIECE
         )
         self.collision_handler.begin = self.piece_on_collision
-        self.collision_handler.data["self"] = self
+        self.collision_handler.data["engine"] = self
 
         self.clock = pygame.time.Clock()
 
@@ -99,6 +99,38 @@ class GameEngine:
             row = idx // 5
             col = idx % 5
             rect.topleft = (start_x + col * gap_x, start_y + row * gap_y)
+
+        # Pre-render game elements
+        self.menu_font = pygame.font.SysFont(None, 28)
+        self.hud_font = pygame.font.SysFont(None, 24)
+
+        self.indicator_surface = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+
+        self.instructions_text = self.hud_font.render(
+            "Click pieces to select. Click indicators to move. Red indicators capture enemies. Press R to restart, ESC for menu",
+            True,
+            BLACK,
+        )
+
+        self.level_select_instructions = self.menu_font.render(
+            "Select a level to play (ESC to return to menu)", True, BLACK
+        )
+
+        self.piece_factory = {
+            0: lambda x, y: King(x, y, self),  # light king
+            1: lambda x, y: Queen(x, y, self),  # light queen
+            2: lambda x, y: Bishop(x, y, self),  # light bishop
+            3: lambda x, y: Knight(x, y, self),  # light knight
+            4: lambda x, y: Rook(x, y, self),  # light rook
+            5: lambda x, y: Pawn(x, y, self),  # light pawn
+            6: lambda x, y: King(x, y, self, enemy=True),  # dark king
+            7: lambda x, y: King(x, y, self, enemy=True),  # dark king (reversed)
+            8: lambda x, y: Queen(x, y, self, enemy=True),  # dark queen
+            9: lambda x, y: Bishop(x, y, self, enemy=True),  # dark bishop
+            10: lambda x, y: Knight(x, y, self, enemy=True),  # dark knight
+            11: lambda x, y: Rook(x, y, self, enemy=True),  # dark rook
+            12: lambda x, y: Pawn(x, y, self, enemy=True),  # dark pawn
+        }
 
     def add_part(self, part: Union["Part", "ChessPiece"]):
         """Add a part to the appropriate list and physics space"""
@@ -148,30 +180,30 @@ class GameEngine:
         )
 
     @staticmethod
-    def piece_on_collision(arbiter: pymunk.Arbiter, space: pymunk.Space, data: any):
+    def piece_on_collision(
+        arbiter: pymunk.Arbiter, space: pymunk.Space, data: Dict[str, Any]
+    ):
         piece_shape, other_shape = arbiter.shapes
 
         match other_shape.collision_type:
             case Collision.SPIKE:
-                for piece in data["self"].dynamics:
+                for piece in data["engine"].dynamics:
                     piece: Part
                     if piece.shape == piece_shape:
-                        data["self"].remove_part(piece)
+                        data["engine"].remove_part(piece)
                         return False
             case Collision.BOUNCY:
-                for obj in data["self"].statics:
+                for obj in data["engine"].statics:
+                    obj: Part
                     if obj.shape != other_shape:
                         continue
                     bounce_height = obj.properties.get("bounce_height", 5) * BLOCK_SIZE
-                    bounce_velocity = math.sqrt(bounce_height * 2 * GRAVITY[1])
+                    bounce_velocity = math.sqrt(bounce_height * 2 * GRAVITY[1]) + 1
                     piece_shape.body.velocity = (0, -bounce_velocity)
                 return False
             case Collision.PASSTHROUGH:
                 contacts: pymunk.ContactPointSet = arbiter.contact_point_set
-                if contacts.normal.y < 0:
-                    return False
-                else:
-                    return True
+                return contacts.normal.y >= 0
 
         return True
 
@@ -182,164 +214,134 @@ class GameEngine:
         try:
             level_data = pytmx.load_pygame(level_path)
             for layer in level_data.layers:
-                match (layer):
-                    case pytmx.TiledImageLayer():
-                        self.backgrounds.append(
-                            level_data.images[level_data.tiledgidmap[(layer.gid)]]
-                        )
-                    case pytmx.TiledTileLayer():
-                        for x, y, gid in layer:
-                            properties = level_data.get_tile_properties_by_gid(gid)
-                            if properties is None:
-                                continue
+                if isinstance(layer, pytmx.TiledImageLayer):
+                    self.backgrounds.append(
+                        level_data.images[level_data.tiledgidmap[(layer.gid)]]
+                    )
+                elif isinstance(layer, pytmx.TiledTileLayer):
+                    self._process_tile_layer(layer, level_data)
+                elif isinstance(layer, pytmx.TiledObjectGroup):
+                    self._process_object_layer(layer, level_data)
 
-                            match properties["id"]:
-                                case (
-                                    13 | 14 | 15 | 16 | 17 | 18 | 19 | 27 | 28
-                                ):
-                                    tile = Part(
-                                        x * BLOCK_SIZE,
-                                        y * BLOCK_SIZE,
-                                        body_type=pymunk.Body.STATIC,
-                                        game_engine=self,
-                                    )
-                                case 20:
-                                    tile = Part(
-                                        x * BLOCK_SIZE,
-                                        y * BLOCK_SIZE,
-                                        height=1,
-                                        block_offset=(0, 26),
-                                        body_type=pymunk.Body.STATIC,
-                                        game_engine=self,
-                                    )
-                                    tile.shape.collision_type = Collision.PASSTHROUGH
-                                case 21:
-                                    tile = Part(
-                                        x * BLOCK_SIZE,
-                                        y * BLOCK_SIZE,
-                                        body_type=pymunk.Body.STATIC,
-                                        game_engine=self,
-                                    )
-                                    tile.shape.friction = 0.001
-                                case 22:
-                                    tile = Part(
-                                        x * BLOCK_SIZE,
-                                        y * BLOCK_SIZE,
-                                        width=BLOCK_SIZE - 8,
-                                        block_offset=(8, 0),
-                                        body_type=pymunk.Body.STATIC,
-                                        game_engine=self,
-                                    )
-                                    tile.shape.collision_type = Collision.SPIKE
-                                case 23:
-                                    tile = Part(
-                                        x * BLOCK_SIZE,
-                                        y * BLOCK_SIZE,
-                                        height=BLOCK_SIZE - 8,
-                                        block_offset=(0, 8),
-                                        body_type=pymunk.Body.STATIC,
-                                        game_engine=self,
-                                    )
-                                    tile.shape.collision_type = Collision.SPIKE
-
-                            tile.sprite = level_data.get_tile_image_by_gid(gid)
-                    case pytmx.TiledObjectGroup():
-                        for obj in layer:
-                            obj: pytmx.TiledObject
-
-                            x, y = obj.x, obj.y
-                            match (obj.properties["id"]):
-                                case 0:  # light king
-                                    tile = King(x, y, self)
-                                case 1:  # light queen
-                                    tile = Queen(x, y, self)
-                                case 2:  # light bishop
-                                    tile = Bishop(x, y, self)
-                                case 3:  # light knight
-                                    tile = Knight(x, y, self)
-                                case 4:  # light rook
-                                    tile = Rook(x, y, self)
-                                case 5:  # light pawn
-                                    tile = Pawn(x, y, self)
-                                case 6 | 7:  # dark king
-                                    tile = King(
-                                        x,
-                                        y,
-                                        self,
-                                        enemy=True,
-                                    )
-                                case 8:  # dark queen
-                                    tile = Queen(
-                                        x,
-                                        y,
-                                        self,
-                                        enemy=True,
-                                    )
-                                case 9:  # dark bishop
-                                    tile = Bishop(
-                                        x,
-                                        y,
-                                        self,
-                                        enemy=True,
-                                    )
-                                case 10:  # dark knight
-                                    tile = Knight(
-                                        x,
-                                        y,
-                                        self,
-                                        enemy=True,
-                                    )
-                                case 11:  # dark rook
-                                    tile = Rook(
-                                        x,
-                                        y,
-                                        self,
-                                        enemy=True,
-                                    )
-                                case 12:  # dark pawn
-                                    tile = Pawn(
-                                        x,
-                                        y,
-                                        self,
-                                        enemy=True,
-                                    )
-                                case 24:
-                                    tile = Part(
-                                        x,
-                                        y,
-                                        body_type=pymunk.Body.STATIC,
-                                        game_engine=self,
-                                    )
-                                    tile.shape.collision_type = Collision.BOUNCY
-                                case 25 | 26:
-                                    tile = Part(
-                                        x,
-                                        y,
-                                        body_type=pymunk.Body.KINEMATIC,
-                                        game_engine=self,
-                                    )
-                                    obj.properties["original_pos"] = (x, y)
-                                    if obj.properties["id"] == 25:
-                                        tile.body.velocity = (
-                                            obj.properties.get("initial_speed", 1)
-                                            * BLOCK_SIZE,
-                                            0,
-                                        )
-                                    else:
-                                        tile.body.velocity = (
-                                            0,
-                                            obj.properties.get("initial_speed", 1)
-                                            * BLOCK_SIZE,
-                                        )
-
-                            tile.sprite = level_data.get_tile_image_by_gid(obj.gid)
-                            tile.properties = obj.properties
             # Switch to playing state
             self.game_state = State.PLAYING
+
         except Exception as e:
             print(f"Error loading level {level_num}: {e}")
             # Fall back to level selection if loading fails
             self.game_state = State.LEVEL_SELECT
+
+    def _process_tile_layer(
+        self, layer: pytmx.TiledTileLayer, level_data: pytmx.TiledMap
+    ):
+        for x, y, gid in layer:
+            properties = level_data.get_tile_properties_by_gid(gid)
+            if properties is None:
+                continue
+
+            tile_id = properties["id"]
+            tile = None
+
+            if tile_id in (13, 14, 15, 16, 17, 18, 19, 27, 28):
+                tile = Part(
+                    x * BLOCK_SIZE,
+                    y * BLOCK_SIZE,
+                    body_type=pymunk.Body.STATIC,
+                    game_engine=self,
+                )
+
+            # Platform you can jump through
+            elif tile_id == 20:
+                tile = Part(
+                    x * BLOCK_SIZE,
+                    y * BLOCK_SIZE,
+                    height=1,
+                    block_offset=(0, 25),
+                    body_type=pymunk.Body.STATIC,
+                    game_engine=self,
+                )
+                tile.shape.collision_type = Collision.PASSTHROUGH
+
+            # Slippery surface
+            elif tile_id == 21:
+                tile = Part(
+                    x * BLOCK_SIZE,
+                    y * BLOCK_SIZE,
+                    body_type=pymunk.Body.STATIC,
+                    game_engine=self,
+                )
+                tile.shape.friction = 0.001
+
+            # Horizontal spike
+            elif tile_id == 22:
+                tile = Part(
+                    x * BLOCK_SIZE,
+                    y * BLOCK_SIZE,
+                    width=BLOCK_SIZE - 8,
+                    block_offset=(8, 0),
+                    body_type=pymunk.Body.STATIC,
+                    game_engine=self,
+                )
+                tile.shape.collision_type = Collision.SPIKE
+
+            # Vertical spike
+            elif tile_id == 23:
+                tile = Part(
+                    x * BLOCK_SIZE,
+                    y * BLOCK_SIZE,
+                    height=BLOCK_SIZE - 8,
+                    block_offset=(0, 8),
+                    body_type=pymunk.Body.STATIC,
+                    game_engine=self,
+                )
+                tile.shape.collision_type = Collision.SPIKE
+
+            # Set sprite for the tile if it was created
+            if tile:
+                tile.sprite = level_data.get_tile_image_by_gid(gid)
+
+    def _process_object_layer(
+        self, layer: pytmx.TiledObjectGroup, level_data: pytmx.TiledMap
+    ):
+
+        for obj in layer:
+            obj: pytmx.TiledObject
+            x, y = obj.x, obj.y
+            obj_id = obj.properties["id"]
+            tile = None
+
+            if obj_id in self.piece_factory:
+                tile = self.piece_factory[obj_id](x, y)
+
+            elif obj_id == 24:
+                tile = Part(
+                    x,
+                    y,
+                    body_type=pymunk.Body.STATIC,
+                    game_engine=self,
+                )
+                tile.shape.collision_type = Collision.BOUNCY
+            elif obj_id in (25, 26):
+                tile = Part(
+                    x,
+                    y,
+                    body_type=pymunk.Body.KINEMATIC,
+                    game_engine=self,
+                )
+                obj.properties["original_pos"] = (x, y)
+                if obj_id == 25:
+                    tile.body.velocity = (
+                        obj.properties.get("initial_speed", 1) * BLOCK_SIZE,
+                        0,
+                    )
+                else:
+                    tile.body.velocity = (
+                        0,
+                        obj.properties.get("initial_speed", 1) * BLOCK_SIZE,
+                    )
+            if tile:
+                tile.sprite = level_data.get_tile_image_by_gid(obj.gid)
+                tile.properties = obj.properties
 
     def handle_events(self):
         """Process pygame events"""
@@ -418,10 +420,7 @@ class GameEngine:
                 # Check if clicked on a piece
                 if self.selected is None and not moved:
                     for piece in self.dynamics:
-                        if piece.enemy is True:
-                            continue
-
-                        if piece.rect.collidepoint(mouse_pos):
+                        if not piece.enemy and piece.rect.collidepoint(mouse_pos):
                             self.selected = piece
                             break
 
@@ -429,72 +428,83 @@ class GameEngine:
         """Create a fade transition effect"""
         fade_surface = pygame.Surface((WIDTH, HEIGHT))
         fade_surface.fill(WHITE)
+
+        steps = 256 // 15
+        step_delay = duration // steps
         for alpha in range(0, 256, 15):
             fade_surface.set_alpha(alpha)
             self.screen.blit(fade_surface, (0, 0))
             pygame.display.flip()
-            pygame.time.delay(duration // (256 // 15))
+            pygame.time.delay(step_delay)
 
     def update(self):
         """Update game state and physics"""
-        if self.game_state == State.PLAYING:
-            # Step physics
-            dt = 1.0 / FPS
-            self.space.step(dt)
+        if self.game_state != State.PLAYING:
+            return
 
-            # Update move indicators
-            if self.selected:
-                self.move_indicators = self.selected.calculate_move_indicators(
-                    self.space, self.dynamics
-                )
+        # Step physics
+        dt = 1.0 / FPS
+        steps = 100
+        for i in range(steps):
+            self.space.step(dt / steps)
+
+        # Update move indicators
+        if self.selected:
+            self.move_indicators = self.selected.calculate_move_indicators(
+                self.space, self.dynamics
+            )
+        else:
+            self.move_indicators.clear()
+
+        # Update moving platforms
+        self._update_platforms()
+
+        # Check win condition
+        if self.is_win_condition():
+            self.clear_level()
+            next_level = self.current_level + 1
+            if next_level <= 10:  # Assuming 10 levels max
+                self.fade_transition()
+                self.generate_level(next_level)
             else:
-                self.move_indicators = []
+                self.fade_transition()
+                self.game_state = State.MENU
 
-            # Update moving platforms
-            for obj in self.kinematics:
-                speed = obj.properties.get("speed", 1) * BLOCK_SIZE
-                x0, y0 = obj.properties["original_pos"]
-                x, y = obj.body.position
-                match obj.properties["id"]:
-                    case 25:
-                        left = obj.properties["left"]
-                        right = obj.properties["right"]
-                        if x - BLOCK_SIZE / 2 <= (x0 - (left * BLOCK_SIZE)):
-                            obj.body.velocity = (speed, 0)
-                            obj.body.position = (
-                                x0 - (left * BLOCK_SIZE)
-                            ) + BLOCK_SIZE / 2, y
-                        if x - BLOCK_SIZE / 2 >= (x0 + (right * BLOCK_SIZE)):
-                            obj.body.velocity = (-speed, 0)
-                            obj.body.position = (
-                                x0 + (right * BLOCK_SIZE)
-                            ) + BLOCK_SIZE / 2, y
-                    case 26:
-                        up = obj.properties["up"]
-                        down = obj.properties["down"]
-                        if y - BLOCK_SIZE / 2 <= (y0 - (up * BLOCK_SIZE)):
-                            obj.body.velocity = (0, speed)
-                            obj.body.position = (
-                                x,
-                                (y0 - (up * BLOCK_SIZE)) + BLOCK_SIZE / 2,
-                            )
-                        if y - BLOCK_SIZE / 2 >= (y0 + (down * BLOCK_SIZE)):
-                            obj.body.velocity = (0, -speed)
-                            obj.body.position = (
-                                x,
-                                (y0 + (down * BLOCK_SIZE)) + BLOCK_SIZE / 2,
-                            )
+    def _update_platforms(self):
+        for obj in self.kinematics:
+            if not hasattr(obj, "properties") or not obj.properties:
+                continue
+            if "original_pos" not in obj.properties:
+                continue
 
-            # Check win condition
-            if self.is_win_condition():
-                self.clear_level()
-                next_level = self.current_level + 1
-                if next_level <= 10:  # Assuming 10 levels max
-                    self.fade_transition()
-                    self.generate_level(next_level)
-                else:
-                    self.fade_transition()
-                    self.game_state = State.MENU
+            speed = obj.properties.get("speed", 1) * BLOCK_SIZE
+            x0, y0 = obj.properties["original_pos"]
+            x, y = obj.body.position
+            obj_id = obj.properties.get("id")
+            if obj_id == 25:
+                left = obj.properties.get("left", 0)
+                right = obj.properties.get("right", 0)
+                left_bound = (x0 - (left * BLOCK_SIZE)) + BLOCK_SIZE / 2
+                right_bound = (x0 + (right * BLOCK_SIZE)) + BLOCK_SIZE / 2
+
+                if x <= left_bound:
+                    obj.body.velocity = (speed, 0)
+                    obj.body.position = left_bound, y
+                elif x >= right_bound:
+                    obj.body.velocity = (-speed, 0)
+                    obj.body.position = right_bound, y
+            elif obj_id == 26:
+                up = obj.properties.get("up", 0)
+                down = obj.properties.get("down", 0)
+                up_bound = (y0 - (up * BLOCK_SIZE)) + BLOCK_SIZE / 2
+                down_bound = (y0 + (down * BLOCK_SIZE)) + BLOCK_SIZE / 2
+
+                if y <= up_bound:
+                    obj.body.velocity = (0, speed)
+                    obj.body.position = x, up_bound
+                elif y >= down_bound:
+                    obj.body.velocity = (0, -speed)
+                    obj.body.position = x, down_bound
 
     def render(self):
         """Render game objects to screen"""
@@ -503,66 +513,61 @@ class GameEngine:
 
         match self.game_state:
             case State.MENU:
-                self.screen.blit(self.start_bg, (0, 0))
-                self.screen.blit(self.start_button, self.start_button_rect)
-
+                self._render_menu()
             case State.LEVEL_SELECT:
-                self.screen.blit(self.level_select_bg, (0, 0))
-                for img, rect in self.level_buttons:
-                    self.screen.blit(img, rect)
-
-                # Display instructions
-                font = pygame.font.SysFont(None, 28)
-                instructions = font.render(
-                    "Select a level to play (ESC to return to menu)", True, BLACK
-                )
-                self.screen.blit(
-                    instructions, (WIDTH // 2 - instructions.get_width() // 2, 50)
-                )
-
+                self._render_level_select()
             case State.PLAYING:
-                # Create transparent surface for indicators
-                indicator_surface = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-
-                # Draw move indicators
-                for indicator_x, indicator_y, enemy_piece in self.move_indicators:
-                    color = CAPTURE_INDICATOR_COLOR if enemy_piece else INDICATOR_COLOR
-                    pygame.draw.circle(
-                        indicator_surface,
-                        (*color, INDICATOR_ALPHA),
-                        (int(indicator_x), int(indicator_y)),
-                        INDICATOR_RADIUS,
-                    )
-
-                # Draw background
-                for bg in self.backgrounds:
-                    self.screen.blit(bg, (0, 0))
-
-                # Draw all parts
-                for obj in self.dynamics:
-                    obj.draw(self.screen)
-                for obj in self.kinematics:
-                    obj.draw(self.screen)
-                for obj in self.statics:
-                    obj.draw(self.screen)
-
-                # Blit the transparent indicator surface
-                self.screen.blit(indicator_surface, (0, 0))
-
-                # Display instructions
-                font = pygame.font.SysFont(None, 24)
-                instructions = font.render(
-                    "Click pieces to select. Click indicators to move. Red indicators capture enemies. Press R to restart, ESC for menu",
-                    True,
-                    BLACK,
-                )
-                self.screen.blit(instructions, (10, 10))
-
-                # Display current level
-                level_text = font.render(f"Level {self.current_level}", True, BLACK)
-                self.screen.blit(level_text, (WIDTH - level_text.get_width() - 10, 10))
+                self._render_game()
 
         pygame.display.flip()
+
+    def _render_menu(self):
+        self.screen.blit(self.start_bg, (0, 0))
+        self.screen.blit(self.start_button, self.start_button_rect)
+
+    def _render_level_select(self):
+        self.screen.blit(self.level_select_bg, (0, 0))
+        for img, rect in self.level_buttons:
+            self.screen.blit(img, rect)
+        self.screen.blit(
+            self.level_select_instructions,
+            (WIDTH // 2 - self.level_select_instructions.get_width() // 2, 50),
+        )
+
+    def _render_game(self):
+        # Create transparent surface for indicators
+        self.indicator_surface.fill((0, 0, 0, 0))
+
+        # Draw move indicators
+        for indicator_x, indicator_y, enemy_piece in self.move_indicators:
+            color = CAPTURE_INDICATOR_COLOR if enemy_piece else INDICATOR_COLOR
+            pygame.draw.circle(
+                self.indicator_surface,
+                (*color, INDICATOR_ALPHA),
+                (int(indicator_x), int(indicator_y)),
+                INDICATOR_RADIUS,
+            )
+
+        # Draw background
+        for bg in self.backgrounds:
+            self.screen.blit(bg, (0, 0))
+
+        # Draw all parts
+        for obj in self.dynamics:
+            obj.draw(self.screen)
+        for obj in self.kinematics:
+            obj.draw(self.screen)
+        for obj in self.statics:
+            obj.draw(self.screen)
+
+        # Blit the transparent indicator surface
+        self.screen.blit(self.indicator_surface, (0, 0))
+
+        self.screen.blit(self.instructions_text, (10, 10))
+
+        # Display current level
+        level_text = self.hud_font.render(f"Level {self.current_level}", True, BLACK)
+        self.screen.blit(level_text, (WIDTH - level_text.get_width() - 10, 10))
 
     def run_game_loop(self):
         """Main game loop"""
@@ -587,7 +592,7 @@ class Part:
         body_type=pymunk.Body.DYNAMIC,
         game_engine: GameEngine | None = None,
     ):
-        self.properties: Dict = {}
+        self.properties: Dict[str, Any] = {}
         self.width: int = width
         self.height: int = height
         self.offset: Tuple[int, int] = block_offset
@@ -617,7 +622,7 @@ class Part:
 
         vertices = [self.body.local_to_world(v) for v in self.shape.get_vertices()]
         if self.sprite is not None:
-            # scaled = pygame.transform.scale(self.sprite, (BLOCK_SIZE, BLOCK_SIZE))
+            # Rotate sprite based on body angle
             rotated = pygame.transform.rotate(
                 self.sprite, -math.degrees(self.body.angle)
             )
@@ -658,7 +663,7 @@ class Part:
         if isinstance(value, pygame.Surface):
             self._sprite = value
         else:
-            raise ValueError("Invalid sprite!")
+            raise ValueError(f"Invalid sprite type: {type(value)}")
 
 
 class ChessPiece(Part):
@@ -674,7 +679,14 @@ class ChessPiece(Part):
     )
 
     def __init__(self, x, y, game_engine: GameEngine | None = None, enemy=False):
-        super().__init__(x, y, BLOCK_SIZE - 15, BLOCK_SIZE - 4, block_offset=(0, 4 / 2), game_engine=game_engine)
+        super().__init__(
+            x,
+            y,
+            BLOCK_SIZE - 15,
+            BLOCK_SIZE - 4,
+            block_offset=(0, 4 / 2),
+            game_engine=game_engine,
+        )
         self.enemy = enemy
 
     def get_possible_moves(self) -> List[Generator[Tuple[int, int], None, None]]:
@@ -688,6 +700,8 @@ class ChessPiece(Part):
         """Calculate absolute positions for move indicators"""
         moves = self.get_possible_moves()
         angle = self.body.angle
+        sin_angle = math.sin(angle)
+        cos_angle = math.cos(angle)
         x, y = self.body.position
 
         # Convert relative moves to absolute positions
@@ -699,8 +713,8 @@ class ChessPiece(Part):
         for generator in moves:
             for dx, dy in generator:
                 # Calculate the absolute position with rotation
-                rotated_dx = dx * math.cos(angle) - dy * math.sin(angle)
-                rotated_dy = dx * math.sin(angle) + dy * math.cos(angle)
+                rotated_dx = dx * cos_angle - dy * sin_angle
+                rotated_dy = dx * sin_angle + dy * cos_angle
 
                 abs_x = x + rotated_dx * BLOCK_SIZE
                 abs_y = y + rotated_dy * BLOCK_SIZE
@@ -733,12 +747,13 @@ class ChessPiece(Part):
                     break
 
                 if isinstance(self, Pawn):
-                    if enemy_piece is None:
-                        if (dx, dy) in pawn_capture_moves:
-                            break
-                    else:
-                        if (dx, dy) not in pawn_capture_moves:
-                            break
+                    is_capture_move = (dx, dy) in pawn_capture_moves
+                    # Pawns can only move diagonally when capturing
+                    if is_capture_move and not enemy_piece:
+                        break
+                    # Pawns can't move forward when blocked
+                    elif not is_capture_move and len(collisions) > 0:
+                        break
 
                 indicator_positions.append((abs_x, abs_y, enemy_piece))
 
@@ -746,13 +761,13 @@ class ChessPiece(Part):
 
     def move_to(self, x, y):
         """Move the piece to a new position"""
-        px, py = self.body.position
-        px = BLOCK_SIZE / 2 + (px // BLOCK_SIZE) * BLOCK_SIZE
+        x0, y0 = self.body.position
+        x0 = BLOCK_SIZE / 2 + (x0 // BLOCK_SIZE) * BLOCK_SIZE
         # Round off positions
-        rx = BLOCK_SIZE / 2 + (x // BLOCK_SIZE) * BLOCK_SIZE
-        ry = BLOCK_SIZE / 2 + (y // BLOCK_SIZE) * BLOCK_SIZE
-        self.body.position = rx, ry
-        self.body.velocity = (rx - px) / 8, 0
+        x1 = BLOCK_SIZE / 2 + (x // BLOCK_SIZE) * BLOCK_SIZE
+        y1 = BLOCK_SIZE / 2 + (y // BLOCK_SIZE) * BLOCK_SIZE
+        self.body.position = x1, y1
+        self.body.velocity = (x1 - x0) / 8, 0
         self.body.angle = 0
 
 
