@@ -28,17 +28,17 @@
   <object id="3" gid="3" x="0" y="600" width="50" height="50"/>
   <object id="7" gid="25" x="650" y="600" width="50" height="50">
    <properties>
-    <property name="bounce_height" type="int" value="2"/>
+    <property name="bounce_height" type="int" value="4"/>
    </properties>
   </object>
   <object id="8" gid="25" x="500" y="650" width="50" height="50">
    <properties>
-    <property name="bounce_height" type="int" value="2"/>
+    <property name="bounce_height" type="int" value="4"/>
    </properties>
   </object>
   <object id="9" gid="25" x="100" y="650" width="50" height="50">
    <properties>
-    <property name="bounce_height" type="int" value="2"/>
+    <property name="bounce_height" type="int" value="4"/>
    </properties>
   </object>
  </objectgroup>
