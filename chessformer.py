@@ -45,6 +45,7 @@ class Collision(IntEnum):
     SPIKE = auto()
     BOUNCY = auto()
     PASSTHROUGH = auto()
+    DISAPPEARING = auto()
 
 
 class GameEngine:
@@ -72,6 +73,7 @@ class GameEngine:
             Collision.PIECE
         )
         self.collision_handler.begin = self.piece_on_collision
+        self.collision_handler.pre_solve = self.piece_pre_solve
         self.collision_handler.data["engine"] = self
 
         self.clock = pygame.time.Clock()
@@ -116,20 +118,36 @@ class GameEngine:
             "Select a level to play (ESC to return to menu)", True, BLACK
         )
 
-        self.piece_factory = {
-            0: lambda x, y: King(x, y, self),  # light king
-            1: lambda x, y: Queen(x, y, self),  # light queen
-            2: lambda x, y: Bishop(x, y, self),  # light bishop
-            3: lambda x, y: Knight(x, y, self),  # light knight
-            4: lambda x, y: Rook(x, y, self),  # light rook
-            5: lambda x, y: Pawn(x, y, self),  # light pawn
-            6: lambda x, y: King(x, y, self, enemy=True),  # dark king
-            7: lambda x, y: King(x, y, self, enemy=True),  # dark king (reversed)
-            8: lambda x, y: Queen(x, y, self, enemy=True),  # dark queen
-            9: lambda x, y: Bishop(x, y, self, enemy=True),  # dark bishop
-            10: lambda x, y: Knight(x, y, self, enemy=True),  # dark knight
-            11: lambda x, y: Rook(x, y, self, enemy=True),  # dark rook
-            12: lambda x, y: Pawn(x, y, self, enemy=True),  # dark pawn
+        self.tile_factory = {
+            0: lambda x, y, p: King(x, y, self, properties=p),  # light king
+            1: lambda x, y, p: Queen(x, y, self, properties=p),  # light queen
+            2: lambda x, y, p: Bishop(x, y, self, properties=p),  # light bishop
+            3: lambda x, y, p: Knight(x, y, self, properties=p),  # light knight
+            4: lambda x, y, p: Rook(x, y, self, properties=p),  # light rook
+            5: lambda x, y, p: Pawn(x, y, self, properties=p),  # light pawn
+            6: lambda x, y, p: King(x, y, self, properties=p, enemy=True),  # dark king
+            7: lambda x, y, p: King(
+                x, y, self, properties=p, enemy=True
+            ),  # dark king (reversed)
+            8: lambda x, y, p: Queen(
+                x, y, self, properties=p, enemy=True
+            ),  # dark queen
+            9: lambda x, y, p: Bishop(
+                x, y, self, properties=p, enemy=True
+            ),  # dark bishop
+            10: lambda x, y, p: Knight(
+                x, y, self, properties=p, enemy=True
+            ),  # dark knight
+            11: lambda x, y, p: Rook(x, y, self, properties=p, enemy=True),  # dark rook
+            12: lambda x, y, p: Pawn(x, y, self, properties=p, enemy=True),  # dark pawn
+            20: lambda x, y, p: ThroughFloor(x, y, self, properties=p),
+            21: lambda x, y, p: IceBlock(x, y, self, properties=p),
+            22: lambda x, y, p: SpikeLeft(x, y, self, properties=p),
+            23: lambda x, y, p: SpikeUp(x, y, self, properties=p),
+            24: lambda x, y, p: Bouncy(x, y, self, properties=p),
+            25: lambda x, y, p: HorizontalPlatform(x, y, self, properties=p),
+            26: lambda x, y, p: VerticalPlatform(x, y, self, properties=p),
+            27: lambda x, y, p: DisappearingBlock(x, y, self, properties=p),
         }
 
     def add_part(self, part: Union["Part", "ChessPiece"]):
@@ -137,13 +155,10 @@ class GameEngine:
         match part.body.body_type:
             case pymunk.Body.STATIC:
                 self.statics.append(part)
-                part.shape.collision_type = Collision.DEFAULT
             case pymunk.Body.KINEMATIC:
                 self.kinematics.append(part)
-                part.shape.collision_type = Collision.DEFAULT
             case pymunk.Body.DYNAMIC:
                 self.dynamics.append(part)
-                part.shape.collision_type = Collision.PIECE
 
         self.space.add(part.body, part.shape)
 
@@ -188,22 +203,45 @@ class GameEngine:
         match other_shape.collision_type:
             case Collision.SPIKE:
                 for piece in data["engine"].dynamics:
-                    piece: Part
+                    piece: ChessPiece
                     if piece.shape == piece_shape:
                         data["engine"].remove_part(piece)
                         return False
             case Collision.BOUNCY:
-                for obj in data["engine"].statics:
-                    obj: Part
-                    if obj.shape != other_shape:
-                        continue
-                    bounce_height = obj.properties.get("bounce_height", 5) * BLOCK_SIZE
-                    bounce_velocity = math.sqrt(bounce_height * 2 * GRAVITY[1]) + 1
-                    piece_shape.body.velocity = (0, -bounce_velocity)
-                return False
+                for bouncy in data["engine"].statics:
+                    bouncy: Bouncy
+                    if bouncy.shape == other_shape:
+                        bounce_height = bouncy.bounce_height * BLOCK_SIZE
+                        bounce_velocity = math.sqrt(bounce_height * 2 * GRAVITY[1]) + 1
+                        piece_shape.body.velocity = (0, -bounce_velocity)
+                        return False
             case Collision.PASSTHROUGH:
                 contacts: pymunk.ContactPointSet = arbiter.contact_point_set
                 return contacts.normal.y >= 0
+            case Collision.DISAPPEARING:
+                for disappearing in data["engine"].statics:
+                    disappearing: DisappearingBlock
+                    if disappearing.shape == other_shape:
+                        if disappearing.active:
+                            disappearing.fading = True
+                            return True
+                        else:
+                            return False
+
+        return True
+
+    @staticmethod
+    def piece_pre_solve(
+        arbiter: pymunk.Arbiter, space: pymunk.Space, data: Dict[str, Any]
+    ):
+        piece_shape, other_shape = arbiter.shapes
+
+        match other_shape.collision_type:
+            case Collision.DISAPPEARING:
+                for disappearing in data["engine"].statics:
+                    disappearing: DisappearingBlock
+                    if disappearing.shape == other_shape:
+                        return disappearing.active
 
         return True
 
@@ -242,61 +280,20 @@ class GameEngine:
             tile_id = properties["id"]
             tile = None
 
-            if tile_id in (13, 14, 15, 16, 17, 18, 19, 27, 28):
+            if tile_id in (13, 14, 15, 16, 17, 18, 19, 28):
                 tile = Part(
                     x * BLOCK_SIZE,
                     y * BLOCK_SIZE,
                     body_type=pymunk.Body.STATIC,
                     game_engine=self,
+                    properties=properties,
                 )
 
-            # Platform you can jump through
-            elif tile_id == 20:
-                tile = Part(
-                    x * BLOCK_SIZE,
-                    y * BLOCK_SIZE,
-                    height=1,
-                    block_offset=(0, 25),
-                    body_type=pymunk.Body.STATIC,
-                    game_engine=self,
+            elif tile_id in self.tile_factory:
+                tile = self.tile_factory[tile_id](
+                    x * BLOCK_SIZE, y * BLOCK_SIZE, properties
                 )
-                tile.shape.collision_type = Collision.PASSTHROUGH
 
-            # Slippery surface
-            elif tile_id == 21:
-                tile = Part(
-                    x * BLOCK_SIZE,
-                    y * BLOCK_SIZE,
-                    body_type=pymunk.Body.STATIC,
-                    game_engine=self,
-                )
-                tile.shape.friction = 0.001
-
-            # Horizontal spike
-            elif tile_id == 22:
-                tile = Part(
-                    x * BLOCK_SIZE,
-                    y * BLOCK_SIZE,
-                    width=BLOCK_SIZE - 8,
-                    block_offset=(8, 0),
-                    body_type=pymunk.Body.STATIC,
-                    game_engine=self,
-                )
-                tile.shape.collision_type = Collision.SPIKE
-
-            # Vertical spike
-            elif tile_id == 23:
-                tile = Part(
-                    x * BLOCK_SIZE,
-                    y * BLOCK_SIZE,
-                    height=BLOCK_SIZE - 8,
-                    block_offset=(0, 8),
-                    body_type=pymunk.Body.STATIC,
-                    game_engine=self,
-                )
-                tile.shape.collision_type = Collision.SPIKE
-
-            # Set sprite for the tile if it was created
             if tile:
                 tile.sprite = level_data.get_tile_image_by_gid(gid)
 
@@ -308,40 +305,11 @@ class GameEngine:
             obj: pytmx.TiledObject
             x, y = obj.x, obj.y
             obj_id = obj.properties["id"]
-            tile = None
+            tile: Optional[Part] = None
 
-            if obj_id in self.piece_factory:
-                tile = self.piece_factory[obj_id](x, y)
-
-            elif obj_id == 24:
-                tile = Part(
-                    x,
-                    y,
-                    body_type=pymunk.Body.STATIC,
-                    game_engine=self,
-                )
-                tile.shape.collision_type = Collision.BOUNCY
-            elif obj_id in (25, 26):
-                tile = Part(
-                    x,
-                    y,
-                    body_type=pymunk.Body.KINEMATIC,
-                    game_engine=self,
-                )
-                obj.properties["original_pos"] = (x, y)
-                if obj_id == 25:
-                    tile.body.velocity = (
-                        obj.properties.get("initial_speed", 1) * BLOCK_SIZE,
-                        0,
-                    )
-                else:
-                    tile.body.velocity = (
-                        0,
-                        obj.properties.get("initial_speed", 1) * BLOCK_SIZE,
-                    )
-            if tile:
+            if obj_id in self.tile_factory:
+                tile = self.tile_factory[obj_id](x, y, obj.properties)
                 tile.sprite = level_data.get_tile_image_by_gid(obj.gid)
-                tile.properties = obj.properties
 
     def handle_events(self):
         """Process pygame events"""
@@ -448,6 +416,13 @@ class GameEngine:
         for i in range(steps):
             self.space.step(dt / steps)
 
+        for part in self.dynamics:
+            part.on_physics(dt)
+        for part in self.kinematics:
+            part.on_physics(dt)
+        for part in self.statics:
+            part.on_physics(dt)
+
         # Update move indicators
         if self.selected:
             self.move_indicators = self.selected.calculate_move_indicators(
@@ -455,9 +430,6 @@ class GameEngine:
             )
         else:
             self.move_indicators.clear()
-
-        # Update moving platforms
-        self._update_platforms()
 
         # Check win condition
         if self.is_win_condition():
@@ -469,42 +441,6 @@ class GameEngine:
             else:
                 self.fade_transition()
                 self.game_state = State.MENU
-
-    def _update_platforms(self):
-        for obj in self.kinematics:
-            if not hasattr(obj, "properties") or not obj.properties:
-                continue
-            if "original_pos" not in obj.properties:
-                continue
-
-            speed = obj.properties.get("speed", 1) * BLOCK_SIZE
-            x0, y0 = obj.properties["original_pos"]
-            x, y = obj.body.position
-            obj_id = obj.properties.get("id")
-            if obj_id == 25:
-                left = obj.properties.get("left", 0)
-                right = obj.properties.get("right", 0)
-                left_bound = (x0 - (left * BLOCK_SIZE)) + BLOCK_SIZE / 2
-                right_bound = (x0 + (right * BLOCK_SIZE)) + BLOCK_SIZE / 2
-
-                if x <= left_bound:
-                    obj.body.velocity = (speed, 0)
-                    obj.body.position = left_bound, y
-                elif x >= right_bound:
-                    obj.body.velocity = (-speed, 0)
-                    obj.body.position = right_bound, y
-            elif obj_id == 26:
-                up = obj.properties.get("up", 0)
-                down = obj.properties.get("down", 0)
-                up_bound = (y0 - (up * BLOCK_SIZE)) + BLOCK_SIZE / 2
-                down_bound = (y0 + (down * BLOCK_SIZE)) + BLOCK_SIZE / 2
-
-                if y <= up_bound:
-                    obj.body.velocity = (0, speed)
-                    obj.body.position = x, up_bound
-                elif y >= down_bound:
-                    obj.body.velocity = (0, -speed)
-                    obj.body.position = x, down_bound
 
     def render(self):
         """Render game objects to screen"""
@@ -584,15 +520,20 @@ class Part:
 
     def __init__(
         self,
-        x,
-        y,
+        x: int,
+        y: int,
         width=BLOCK_SIZE,
         height=BLOCK_SIZE,
         block_offset=(0, 0),
         body_type=pymunk.Body.DYNAMIC,
         game_engine: GameEngine | None = None,
+        properties: Dict[str, Any] = None,
     ):
-        self.properties: Dict[str, Any] = {}
+        if properties == None:
+            self.properties: Dict[str, Any] = {}
+        else:
+            self.properties = properties
+
         self.width: int = width
         self.height: int = height
         self.offset: Tuple[int, int] = block_offset
@@ -602,6 +543,7 @@ class Part:
         # Create physics body
         self.body: pymunk.Body = pymunk.Body(body_type=body_type)
         self.shape: pymunk.Poly = pymunk.Poly.create_box(self.body, (width, height))
+        self.shape.collision_type = Collision.DEFAULT
         self.shape.mass = 1
 
         self.body.position = (
@@ -614,6 +556,9 @@ class Part:
         # Add to game engine if provided
         if game_engine:
             game_engine.add_part(self)
+
+    def on_physics(self, dt: float):
+        pass
 
     def draw(self, surface: pygame.Surface):
         """Draw the part to the given surface"""
@@ -639,9 +584,6 @@ class Part:
             pygame_vertices = [(v.x, v.y) for v in vertices]
             pygame.draw.polygon(surface, (0, 0, 0), pygame_vertices)
 
-        pygame_vertices = [(v.x, v.y) for v in vertices]
-        pygame.draw.polygon(surface, (0, 255, 0), pygame_vertices, width=1)
-
     @property
     def rect(self):
         """Get pygame Rect for collision detection"""
@@ -666,6 +608,191 @@ class Part:
             raise ValueError(f"Invalid sprite type: {type(value)}")
 
 
+class ThroughFloor(Part):
+    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+        super().__init__(
+            x,
+            y,
+            height=1,
+            block_offset=(0, 25),
+            body_type=pymunk.Body.STATIC,
+            game_engine=game_engine,
+        )
+        self.shape.collision_type = Collision.PASSTHROUGH
+
+
+class IceBlock(Part):
+    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+        super().__init__(
+            x,
+            y,
+            body_type=pymunk.Body.STATIC,
+            game_engine=game_engine,
+            properties=properties,
+        )
+        self.shape.friction = 0.001
+
+
+class SpikeLeft(Part):
+    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+        super().__init__(
+            x,
+            y,
+            width=BLOCK_SIZE - 8,
+            block_offset=(8, 0),
+            body_type=pymunk.Body.STATIC,
+            game_engine=game_engine,
+        )
+        self.shape.collision_type = Collision.SPIKE
+
+
+class SpikeUp(Part):
+    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+        super().__init__(
+            x,
+            y,
+            height=BLOCK_SIZE - 8,
+            block_offset=(0, 8),
+            body_type=pymunk.Body.STATIC,
+            game_engine=game_engine,
+        )
+        self.shape.collision_type = Collision.SPIKE
+
+
+class Bouncy(Part):
+    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+        super().__init__(
+            x,
+            y,
+            body_type=pymunk.Body.STATIC,
+            game_engine=game_engine,
+            properties=properties,
+        )
+        self.bounce_height: int = self.properties.get("bounce_height", 5)
+        self.shape.collision_type = Collision.BOUNCY
+
+
+class HorizontalPlatform(Part):
+    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+        super().__init__(
+            x,
+            y,
+            body_type=pymunk.Body.KINEMATIC,
+            game_engine=game_engine,
+            properties=properties,
+        )
+        left = self.properties.get("left", 0)
+        right = self.properties.get("right", 0)
+        self.left_bound = (x - (left * BLOCK_SIZE)) + BLOCK_SIZE / 2
+        self.right_bound = (x + (right * BLOCK_SIZE)) + BLOCK_SIZE / 2
+        self.speed = self.properties.get("speed", 1)
+        self.body.velocity = (
+            self.properties.get("initial_speed", 1) * BLOCK_SIZE,
+            0,
+        )
+
+    def on_physics(self, dt: float):
+        x, y = self.body.position
+        if x <= self.left_bound:
+            self.body.velocity = (self.speed * BLOCK_SIZE, 0)
+            self.body.position = self.left_bound, y
+        elif x >= self.right_bound:
+            self.body.velocity = (-self.speed * BLOCK_SIZE, 0)
+            self.body.position = self.right_bound, y
+
+
+class VerticalPlatform(Part):
+    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+        super().__init__(
+            x,
+            y,
+            body_type=pymunk.Body.KINEMATIC,
+            game_engine=game_engine,
+            properties=properties,
+        )
+        up = self.properties.get("up", 0)
+        down = self.properties.get("down", 0)
+        self.up_bound = (y - (up * BLOCK_SIZE)) + BLOCK_SIZE / 2
+        self.down_bound = (y + (down * BLOCK_SIZE)) + BLOCK_SIZE / 2
+        self.speed = self.properties.get("speed", 1)
+        self.body.velocity = (
+            0,
+            self.properties.get("initial_speed", 1) * BLOCK_SIZE,
+        )
+
+    def on_physics(self, dt: float):
+        x, y = self.body.position
+        if y <= self.up_bound:
+            self.body.velocity = (0, self.speed * BLOCK_SIZE)
+            self.body.position = x, self.up_bound
+        elif y >= self.down_bound:
+            self.body.velocity = (0, -self.speed * BLOCK_SIZE)
+            self.body.position = x, self.down_bound
+
+
+class DisappearingBlock(Part):
+    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+        super().__init__(
+            x,
+            y,
+            body_type=pymunk.Body.STATIC,
+            game_engine=game_engine,
+            properties=properties,
+        )
+
+        self.active: bool = True
+        self.fading: bool = False
+        self.fade_time: int = self.properties.get("fade_time", 5)
+        self.fade_timer: float = 0
+        self.regen_time: int = self.properties.get("regen_time", 5)
+        self.regen_timer: float = 0
+        self.shape.collision_type = Collision.DISAPPEARING
+
+    def on_physics(self, dt: float):
+        if self.active:
+            if self.fading:
+                self.fade_timer += dt
+                if self.fade_timer >= self.fade_time:
+                    self.active = False
+                    self.fading = False
+                    self.fade_timer = 0
+        else:
+            self.regen_timer += dt
+            if self.regen_timer >= self.regen_time:
+                self.active = True
+                self.regen_timer = 0
+
+    def draw(self, surface: pygame.Surface):
+        """Draw the part to the given surface"""
+        if not self.visible:
+            return
+
+        vertices = [self.body.local_to_world(v) for v in self.shape.get_vertices()]
+        if self.sprite is not None:
+            # Rotate sprite based on body angle
+            rotated = pygame.transform.rotate(
+                self.sprite, -math.degrees(self.body.angle)
+            )
+
+            if self.active:
+                alpha_reduce = (255 * self.fade_timer / self.fade_time) // 51
+                rotated.set_alpha(255 - alpha_reduce * 51)
+            else:
+                return
+
+            x, y = self.body.position
+            surface.blit(
+                rotated,
+                (
+                    x - rotated.get_width() / 2 - self.offset[0],
+                    y - rotated.get_height() / 2 - self.offset[1],
+                ),
+            )
+        else:
+            pygame_vertices = [(v.x, v.y) for v in vertices]
+            pygame.draw.polygon(surface, (0, 0, 0), pygame_vertices)
+
+
 class ChessPiece(Part):
     """Base class for all chess pieces"""
 
@@ -678,7 +805,9 @@ class ChessPiece(Part):
         ),
     )
 
-    def __init__(self, x, y, game_engine: GameEngine | None = None, enemy=False):
+    def __init__(
+        self, x, y, game_engine: GameEngine | None = None, enemy=False, properties=None
+    ):
         super().__init__(
             x,
             y,
@@ -686,7 +815,9 @@ class ChessPiece(Part):
             BLOCK_SIZE - 4,
             block_offset=(0, 4 / 2),
             game_engine=game_engine,
+            properties=properties,
         )
+        self.shape.collision_type = Collision.PIECE
         self.enemy = enemy
 
     def get_possible_moves(self) -> List[Generator[Tuple[int, int], None, None]]:
@@ -774,8 +905,8 @@ class ChessPiece(Part):
 class Pawn(ChessPiece):
     """Pawn chess piece"""
 
-    def __init__(self, x, y, game_engine=None, enemy=False):
-        super().__init__(x, y, game_engine, enemy=enemy)
+    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+        super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
         self.moved: bool = False
 
     def get_possible_moves(self):
@@ -808,8 +939,8 @@ class Pawn(ChessPiece):
 class Knight(ChessPiece):
     """Knight chess piece"""
 
-    def __init__(self, x, y, game_engine=None, enemy=False):
-        super().__init__(x, y, game_engine, enemy=enemy)
+    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+        super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self):
         # Knights move in L-shape
@@ -828,8 +959,8 @@ class Knight(ChessPiece):
 class Bishop(ChessPiece):
     """Bishop chess piece"""
 
-    def __init__(self, x, y, game_engine=None, enemy=False):
-        super().__init__(x, y, game_engine, enemy=enemy)
+    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+        super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self):
         # Bishops move diagonally
@@ -845,8 +976,8 @@ class Bishop(ChessPiece):
 class Rook(ChessPiece):
     """Rook chess piece"""
 
-    def __init__(self, x, y, game_engine=None, enemy=False):
-        super().__init__(x, y, game_engine, enemy=enemy)
+    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+        super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self):
         # Rooks move horizontally and vertically
@@ -862,8 +993,8 @@ class Rook(ChessPiece):
 class Queen(ChessPiece):
     """Queen chess piece"""
 
-    def __init__(self, x, y, game_engine=None, enemy=False):
-        super().__init__(x, y, game_engine, enemy=enemy)
+    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+        super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self):
         # Queens move diagonally, horizontally, and vertically
@@ -884,8 +1015,8 @@ class Queen(ChessPiece):
 class King(ChessPiece):
     """King chess piece"""
 
-    def __init__(self, x, y, game_engine=None, enemy=False):
-        super().__init__(x, y, game_engine, enemy=enemy)
+    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+        super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self):
         # Kings move one square in any direction
