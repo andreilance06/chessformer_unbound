@@ -180,7 +180,7 @@ class GameEngine:
 
     def clear_level(self):
         """Clear backgrounds, statics, and pieces"""
-        self.backgrounds = []
+        self.backgrounds.clear()
         for part in self.statics[:]:
             self.remove_part(part)
         for part in self.kinematics[:]:
