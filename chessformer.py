@@ -12,6 +12,7 @@ WIDTH, HEIGHT = 1000, 700
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
+PURPLE = (187, 150, 255)
 
 # Game settings
 BLOCK_SIZE = 50
@@ -29,7 +30,7 @@ GRAVITY = (0, 980)
 FRICTION = 1
 ELASTICITY = 0.5
 DAMPING = 1
-PHYSICS_ITERATIONS = int(20000 / FPS)
+PHYSICS_ITERATIONS = int(6000 / FPS)
 
 
 # Game states
@@ -42,6 +43,7 @@ class State(IntEnum):
 class Collision(IntEnum):
     DEFAULT = auto()
     PIECE = auto()
+    ENEMY = auto()
     SPIKE = auto()
     BOUNCY = auto()
     PASSTHROUGH = auto()
@@ -73,7 +75,6 @@ class GameEngine:
             Collision.PIECE
         )
         self.collision_handler.begin = self.piece_on_collision
-        self.collision_handler.pre_solve = self.piece_pre_solve
         self.collision_handler.data["engine"] = self
 
         self.clock = pygame.time.Clock()
@@ -82,7 +83,27 @@ class GameEngine:
         self.start_bg = pygame.image.load("menu_assets/start_bg.png")
         self.level_select_bg = pygame.image.load("menu_assets/level_bg.png")
         self.start_button = pygame.image.load("menu_assets/play_btn.png")
+
+        self.sidebar_icon1 = pygame.image.load(
+            "menu_assets/sidebar_icon.png"
+        ).convert_alpha()
         self.start_button_rect = self.start_button.get_rect(center=(750, 420))
+        self.sidebar_rect = pygame.Rect((10, 10), self.sidebar_icon1.get_size())
+        self.sidebar_icon2 = pygame.image.load(
+            "menu_assets/x_sidebar.png"
+        ).convert_alpha()
+        self.sidebar_bg = pygame.image.load(
+            "menu_assets/sidebar_bg.png"
+        ).convert_alpha()
+
+        # Menu options and state
+        self.sidebar_options = ["Restart", "Level Selection", "Exit"]
+        self.sidebar_font = pygame.font.SysFont("twcen", 25)
+        self.sidebar_visible = False
+        self.sidebar_width = 300
+        self.sidebar_speed = 40
+        self.sidebar_x = -self.sidebar_width
+        self.selected_option = None
 
         # Level selection buttons
         self.level_buttons: List[Tuple[pygame.Surface, pygame.Rect]] = []
@@ -102,21 +123,9 @@ class GameEngine:
             col = idx % 5
             rect.topleft = (start_x + col * gap_x, start_y + row * gap_y)
 
-        # Pre-render game elements
-        self.menu_font = pygame.font.SysFont(None, 28)
         self.hud_font = pygame.font.SysFont(None, 24)
 
         self.indicator_surface = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-
-        self.instructions_text = self.hud_font.render(
-            "Click pieces to select. Click indicators to move. Red indicators capture enemies. Press R to restart, ESC for menu",
-            True,
-            BLACK,
-        )
-
-        self.level_select_instructions = self.menu_font.render(
-            "Select a level to play (ESC to return to menu)", True, BLACK
-        )
 
         self.tile_factory = {
             0: lambda x, y, p: King(x, y, self, properties=p),  # light king
@@ -175,8 +184,9 @@ class GameEngine:
             self.dynamics.remove(part)
         else:
             raise RuntimeError("Part not found!")
-
-        self.space.remove(part.body, part.shape)
+        
+        if part.body in self.space.bodies and part.shape in self.space.shapes:
+            self.space.remove(part.body, part.shape)
 
     def clear_level(self):
         """Clear backgrounds, statics, and pieces"""
@@ -201,6 +211,12 @@ class GameEngine:
         piece_shape, other_shape = arbiter.shapes
 
         match other_shape.collision_type:
+            case Collision.ENEMY:
+                for enemy in data["engine"].dynamics:
+                    enemy: ChessPiece
+                    if enemy.shape == other_shape:
+                        data["engine"].remove_part(enemy)
+                        return False
             case Collision.SPIKE:
                 for piece in data["engine"].dynamics:
                     piece: ChessPiece
@@ -227,21 +243,6 @@ class GameEngine:
                             return True
                         else:
                             return False
-
-        return True
-
-    @staticmethod
-    def piece_pre_solve(
-        arbiter: pymunk.Arbiter, space: pymunk.Space, data: Dict[str, Any]
-    ):
-        piece_shape, other_shape = arbiter.shapes
-
-        match other_shape.collision_type:
-            case Collision.DISAPPEARING:
-                for disappearing in data["engine"].statics:
-                    disappearing: DisappearingBlock
-                    if disappearing.shape == other_shape:
-                        return disappearing.active
 
         return True
 
@@ -311,34 +312,22 @@ class GameEngine:
                 tile = self.tile_factory[obj_id](x, y, obj.properties)
                 tile.sprite = level_data.get_tile_image_by_gid(obj.gid)
 
-    def handle_events(self):
+    def handle_events(self) -> bool:
         """Process pygame events"""
+        running = True
         for event in pygame.event.get():
             match event.type:
                 case pygame.QUIT:
-                    return False
+                    running = False
                 case pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:  # Left click
-                        self.handle_mouse_click(pygame.mouse.get_pos())
+                        running = self.handle_mouse_click(pygame.mouse.get_pos())
+                case pygame.MOUSEMOTION:
+                    running = self.handle_mouse_motion(event.pos)
                 case pygame.KEYDOWN:
-                    self.handle_keydown(event.key)
+                    running = self.handle_keydown(event.key)
 
-        return True
-
-    def handle_keydown(self, key: int):
-        match key:
-            case pygame.K_r:
-                if self.game_state == State.PLAYING:
-                    self.clear_level()
-                    self.generate_level(self.current_level)
-            case pygame.K_ESCAPE:
-                if self.game_state == State.PLAYING:
-                    self.fade_transition()
-                    self.clear_level()
-                    self.game_state = State.LEVEL_SELECT
-                elif self.game_state == State.LEVEL_SELECT:
-                    self.fade_transition()
-                    self.game_state = State.MENU
+        return running
 
     def handle_mouse_click(self, mouse_pos: Tuple[int, int]):
         """Process mouse click events"""
@@ -357,7 +346,26 @@ class GameEngine:
                         break
 
             case State.PLAYING:
-                # Check if clicked on a move indicator
+                if self.sidebar_visible:
+
+                    if self.sidebar_rect.collidepoint(mouse_pos) or not pygame.Rect(
+                        -self.sidebar_x, 0, self.sidebar_width, HEIGHT
+                    ).collidepoint(mouse_pos):
+                        self.sidebar_visible = False
+                        return True
+
+                    for i, option in enumerate(self.sidebar_options):
+                        option_rect = pygame.Rect(
+                            (self.sidebar_x + 30, 150 + i * 40),
+                            self.sidebar_font.size(option),
+                        )
+                        if option_rect.collidepoint(mouse_pos):
+                            return self.handle_option_click(option)
+
+                elif self.sidebar_rect.collidepoint(mouse_pos):
+                    self.sidebar_visible = True
+                    return True
+
                 moved = False
                 if self.selected:
                     for indicator_x, indicator_y, enemy_piece in self.move_indicators:
@@ -392,6 +400,43 @@ class GameEngine:
                             self.selected = piece
                             break
 
+        return True
+
+    def handle_option_click(self, option: str) -> bool:
+        match option:
+            case "Exit":
+                return False
+            case "Restart":
+                self.clear_level()
+                self.generate_level(self.current_level)
+            case "Level Selection":
+                self.fade_transition()
+                self.clear_level()
+                self.game_state = State.LEVEL_SELECT
+                self.sidebar_x = -self.sidebar_width
+
+        self.sidebar_visible = False
+
+        return True
+
+    def handle_mouse_motion(self, pos: Tuple[int, int]):
+        if not self.sidebar_visible:
+            return True
+
+        self.selected_option = None
+        for i, option in enumerate(self.sidebar_options):
+            option_rect = pygame.Rect(
+                (self.sidebar_x + 30, 150 + i * 40), self.sidebar_font.size(option)
+            )
+            if option_rect.collidepoint(pos):
+                self.selected_option = i
+                return True
+
+        return True
+
+    def handle_keydown(self, key: int):
+        return True
+
     def fade_transition(self, duration=400):
         """Create a fade transition effect"""
         fade_surface = pygame.Surface((WIDTH, HEIGHT))
@@ -410,6 +455,13 @@ class GameEngine:
         if self.game_state != State.PLAYING:
             return
 
+        if self.sidebar_visible:
+            self.sidebar_x = min(0, self.sidebar_x + self.sidebar_speed)
+        else:
+            self.sidebar_x = max(
+                -self.sidebar_width, self.sidebar_x - self.sidebar_speed
+            )
+
         # Step physics
         dt = 1.0 / FPS
         steps = 100
@@ -417,11 +469,11 @@ class GameEngine:
             self.space.step(dt / steps)
 
         for part in self.dynamics:
-            part.on_physics(dt)
+            part.on_physics(dt, self.space)
         for part in self.kinematics:
-            part.on_physics(dt)
+            part.on_physics(dt, self.space)
         for part in self.statics:
-            part.on_physics(dt)
+            part.on_physics(dt, self.space)
 
         # Update move indicators
         if self.selected:
@@ -454,6 +506,7 @@ class GameEngine:
                 self._render_level_select()
             case State.PLAYING:
                 self._render_game()
+                self._render_sidebar()
 
         pygame.display.flip()
 
@@ -465,10 +518,6 @@ class GameEngine:
         self.screen.blit(self.level_select_bg, (0, 0))
         for img, rect in self.level_buttons:
             self.screen.blit(img, rect)
-        self.screen.blit(
-            self.level_select_instructions,
-            (WIDTH // 2 - self.level_select_instructions.get_width() // 2, 50),
-        )
 
     def _render_game(self):
         # Create transparent surface for indicators
@@ -499,11 +548,20 @@ class GameEngine:
         # Blit the transparent indicator surface
         self.screen.blit(self.indicator_surface, (0, 0))
 
-        self.screen.blit(self.instructions_text, (10, 10))
-
         # Display current level
         level_text = self.hud_font.render(f"Level {self.current_level}", True, BLACK)
         self.screen.blit(level_text, (WIDTH - level_text.get_width() - 10, 10))
+
+    def _render_sidebar(self):
+        self.screen.blit(self.sidebar_bg, (self.sidebar_x, 0))
+
+        for i, option in enumerate(self.sidebar_options):
+            color = PURPLE if i == self.selected_option else BLACK
+            option_text = self.sidebar_font.render(option, True, color)
+            self.screen.blit(option_text, (self.sidebar_x + 30, 150 + i * 40))
+
+        icon = self.sidebar_icon2 if self.sidebar_visible else self.sidebar_icon1
+        self.screen.blit(icon, self.sidebar_rect.topleft)
 
     def run_game_loop(self):
         """Main game loop"""
@@ -557,7 +615,7 @@ class Part:
         if game_engine:
             game_engine.add_part(self)
 
-    def on_physics(self, dt: float):
+    def on_physics(self, dt: float, space: pymunk.Space):
         pass
 
     def draw(self, surface: pygame.Surface):
@@ -691,7 +749,7 @@ class HorizontalPlatform(Part):
             0,
         )
 
-    def on_physics(self, dt: float):
+    def on_physics(self, dt: float, space: pymunk.Space):
         x, y = self.body.position
         if x <= self.left_bound:
             self.body.velocity = (self.speed * BLOCK_SIZE, 0)
@@ -720,7 +778,7 @@ class VerticalPlatform(Part):
             self.properties.get("initial_speed", 1) * BLOCK_SIZE,
         )
 
-    def on_physics(self, dt: float):
+    def on_physics(self, dt: float, space: pymunk.Space):
         x, y = self.body.position
         if y <= self.up_bound:
             self.body.velocity = (0, self.speed * BLOCK_SIZE)
@@ -748,7 +806,7 @@ class DisappearingBlock(Part):
         self.regen_timer: float = 0
         self.shape.collision_type = Collision.DISAPPEARING
 
-    def on_physics(self, dt: float):
+    def on_physics(self, dt: float, space: pymunk.Space):
         if self.active:
             if self.fading:
                 self.fade_timer += dt
@@ -756,11 +814,13 @@ class DisappearingBlock(Part):
                     self.active = False
                     self.fading = False
                     self.fade_timer = 0
+                    space.remove(self.shape, self.body)
         else:
             self.regen_timer += dt
             if self.regen_timer >= self.regen_time:
                 self.active = True
                 self.regen_timer = 0
+                space.add(self.shape, self.body)
 
     def draw(self, surface: pygame.Surface):
         """Draw the part to the given surface"""
@@ -811,13 +871,13 @@ class ChessPiece(Part):
         super().__init__(
             x,
             y,
-            BLOCK_SIZE - 15,
+            BLOCK_SIZE - 16,
             BLOCK_SIZE - 4,
             block_offset=(0, 4 / 2),
             game_engine=game_engine,
             properties=properties,
         )
-        self.shape.collision_type = Collision.PIECE
+        self.shape.collision_type = Collision.PIECE if not enemy else Collision.ENEMY
         self.enemy = enemy
 
     def get_possible_moves(self) -> List[Generator[Tuple[int, int], None, None]]:
