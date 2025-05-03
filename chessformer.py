@@ -1,6 +1,12 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
 import math
 from enum import IntEnum, auto
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
 import pygame
 import pymunk
@@ -51,7 +57,7 @@ class Collision(IntEnum):
 
 
 class GameEngine:
-    """Main game engine that handles physics, rendering and game state"""
+    """Main game engine that handles physics, rendering and game state."""
 
     def __init__(self, screen: pygame.Surface):
         self.screen = screen
@@ -59,12 +65,12 @@ class GameEngine:
         self.game_state = State.MENU
 
         # Game elements
-        self.backgrounds: List[pygame.Surface] = []
-        self.statics: List[Part] = []
-        self.kinematics: List[Part] = []
-        self.dynamics: List[Part] = []
-        self.selected: Optional[ChessPiece] = None
-        self.move_indicators: List[Tuple[int, int, ChessPiece]] = []
+        self.backgrounds: list[pygame.Surface] = []
+        self.statics: list[Part] = []
+        self.kinematics: list[Part] = []
+        self.dynamics: list[Part] = []
+        self.selected: ChessPiece | None = None
+        self.move_indicators: list[tuple[int, int, ChessPiece]] = []
 
         # Initialize physics
         self.space = pymunk.Space()
@@ -72,7 +78,7 @@ class GameEngine:
         self.space.damping = DAMPING
         self.space.iterations = PHYSICS_ITERATIONS
         self.collision_handler = self.space.add_wildcard_collision_handler(
-            Collision.PIECE
+            Collision.PIECE,
         )
         self.collision_handler.begin = self.piece_on_collision
         self.collision_handler.data["engine"] = self
@@ -85,15 +91,15 @@ class GameEngine:
         self.start_button = pygame.image.load("menu_assets/play_btn.png")
 
         self.sidebar_icon1 = pygame.image.load(
-            "menu_assets/sidebar_icon.png"
+            "menu_assets/sidebar_icon.png",
         ).convert_alpha()
         self.start_button_rect = self.start_button.get_rect(center=(750, 420))
         self.sidebar_rect = pygame.Rect((10, 10), self.sidebar_icon1.get_size())
         self.sidebar_icon2 = pygame.image.load(
-            "menu_assets/x_sidebar.png"
+            "menu_assets/x_sidebar.png",
         ).convert_alpha()
         self.sidebar_bg = pygame.image.load(
-            "menu_assets/sidebar_bg.png"
+            "menu_assets/sidebar_bg.png",
         ).convert_alpha()
 
         # Menu options and state
@@ -106,7 +112,7 @@ class GameEngine:
         self.selected_option = None
 
         # Level selection buttons
-        self.level_buttons: List[Tuple[pygame.Surface, pygame.Rect]] = []
+        self.level_buttons: list[tuple[pygame.Surface, pygame.Rect]] = []
         for i in range(1, 11):
             btn_img = pygame.image.load(f"menu_assets/lvl{i}_btn.png")
             btn_rect = btn_img.get_rect()
@@ -136,16 +142,32 @@ class GameEngine:
             5: lambda x, y, p: Pawn(x, y, self, properties=p),  # light pawn
             6: lambda x, y, p: King(x, y, self, properties=p, enemy=True),  # dark king
             7: lambda x, y, p: King(
-                x, y, self, properties=p, enemy=True
+                x,
+                y,
+                self,
+                properties=p,
+                enemy=True,
             ),  # dark king (reversed)
             8: lambda x, y, p: Queen(
-                x, y, self, properties=p, enemy=True
+                x,
+                y,
+                self,
+                properties=p,
+                enemy=True,
             ),  # dark queen
             9: lambda x, y, p: Bishop(
-                x, y, self, properties=p, enemy=True
+                x,
+                y,
+                self,
+                properties=p,
+                enemy=True,
             ),  # dark bishop
             10: lambda x, y, p: Knight(
-                x, y, self, properties=p, enemy=True
+                x,
+                y,
+                self,
+                properties=p,
+                enemy=True,
             ),  # dark knight
             11: lambda x, y, p: Rook(x, y, self, properties=p, enemy=True),  # dark rook
             12: lambda x, y, p: Pawn(x, y, self, properties=p, enemy=True),  # dark pawn
@@ -159,8 +181,8 @@ class GameEngine:
             27: lambda x, y, p: DisappearingBlock(x, y, self, properties=p),
         }
 
-    def add_part(self, part: Union["Part", "ChessPiece"]):
-        """Add a part to the appropriate list and physics space"""
+    def add_part(self, part: Part | ChessPiece) -> None:
+        """Add a part to the appropriate list and physics space."""
         match part.body.body_type:
             case pymunk.Body.STATIC:
                 self.statics.append(part)
@@ -171,8 +193,8 @@ class GameEngine:
 
         self.space.add(part.body, part.shape)
 
-    def remove_part(self, part: "Part"):
-        """Remove a part from the game"""
+    def remove_part(self, part: Part) -> None:
+        """Remove a part from the game."""
         if self.selected == part:
             self.selected = None
 
@@ -184,12 +206,12 @@ class GameEngine:
             self.dynamics.remove(part)
         else:
             raise RuntimeError("Part not found!")
-        
+
         if part.body in self.space.bodies and part.shape in self.space.shapes:
             self.space.remove(part.body, part.shape)
 
-    def clear_level(self):
-        """Clear backgrounds, statics, and pieces"""
+    def clear_level(self) -> None:
+        """Clear backgrounds, statics, and pieces."""
         self.backgrounds.clear()
         for part in self.statics[:]:
             self.remove_part(part)
@@ -198,56 +220,60 @@ class GameEngine:
         for part in self.dynamics[:]:
             self.remove_part(part)
 
-    def is_win_condition(self):
+    def is_win_condition(self) -> bool:
         return not any(
             piece.enemy if isinstance(piece, ChessPiece) else True
             for piece in self.dynamics
         )
 
+    def find_part(self, part_id: pymunk.Shape) -> Part | None:
+        search_list: list[Part] = []
+        match part_id.body.body_type:
+            case pymunk.Body.DYNAMIC:
+                search_list = self.dynamics
+            case pymunk.Body.KINEMATIC:
+                search_list = self.kinematics
+            case pymunk.Body.STATIC:
+                search_list = self.statics
+
+        for part in search_list:
+            if part.shape == part_id:
+                return part
+
+        return None
+
     @staticmethod
-    def piece_on_collision(
-        arbiter: pymunk.Arbiter, space: pymunk.Space, data: Dict[str, Any]
-    ):
+    def piece_on_collision(arbiter: pymunk.Arbiter, space: pymunk.Space, data: dict):
         piece_shape, other_shape = arbiter.shapes
+
+        piece: ChessPiece = data["engine"].find_part(piece_shape)
+        other: Part = data["engine"].find_part(other_shape)
 
         match other_shape.collision_type:
             case Collision.ENEMY:
-                for enemy in data["engine"].dynamics:
-                    enemy: ChessPiece
-                    if enemy.shape == other_shape:
-                        data["engine"].remove_part(enemy)
-                        return False
+                data["engine"].remove_part(other)
+                return False
             case Collision.SPIKE:
-                for piece in data["engine"].dynamics:
-                    piece: ChessPiece
-                    if piece.shape == piece_shape:
-                        data["engine"].remove_part(piece)
-                        return False
+                data["engine"].remove_part(piece)
+                return False
             case Collision.BOUNCY:
-                for bouncy in data["engine"].statics:
-                    bouncy: Bouncy
-                    if bouncy.shape == other_shape:
-                        bounce_height = bouncy.bounce_height * BLOCK_SIZE
-                        bounce_velocity = math.sqrt(bounce_height * 2 * GRAVITY[1]) + 1
-                        piece_shape.body.velocity = (0, -bounce_velocity)
-                        return False
+                other: Bouncy
+                bounce_height = other.bounce_height * BLOCK_SIZE
+                bounce_velocity = math.sqrt(bounce_height * 2 * GRAVITY[1]) + 1
+                piece_shape.body.velocity = (0, -bounce_velocity)
+                return False
             case Collision.PASSTHROUGH:
                 contacts: pymunk.ContactPointSet = arbiter.contact_point_set
                 return contacts.normal.y >= 0
             case Collision.DISAPPEARING:
-                for disappearing in data["engine"].statics:
-                    disappearing: DisappearingBlock
-                    if disappearing.shape == other_shape:
-                        if disappearing.active:
-                            disappearing.fading = True
-                            return True
-                        else:
-                            return False
+                other: DisappearingBlock
+                other.fading = other.active
+                return other.active
 
         return True
 
-    def generate_level(self, level_num: int):
-        """Load and create level tiles from TMX file"""
+    def generate_level(self, level_num: int) -> None:
+        """Load and create level tiles from TMX file."""
         self.current_level = level_num
         level_path = f"./levels/level{level_num}.tmx"
         try:
@@ -255,7 +281,7 @@ class GameEngine:
             for layer in level_data.layers:
                 if isinstance(layer, pytmx.TiledImageLayer):
                     self.backgrounds.append(
-                        level_data.images[level_data.tiledgidmap[(layer.gid)]]
+                        level_data.images[level_data.tiledgidmap[(layer.gid)]],
                     )
                 elif isinstance(layer, pytmx.TiledTileLayer):
                     self._process_tile_layer(layer, level_data)
@@ -265,14 +291,14 @@ class GameEngine:
             # Switch to playing state
             self.game_state = State.PLAYING
 
-        except Exception as e:
-            print(f"Error loading level {level_num}: {e}")
-            # Fall back to level selection if loading fails
+        except Exception:
             self.game_state = State.LEVEL_SELECT
 
     def _process_tile_layer(
-        self, layer: pytmx.TiledTileLayer, level_data: pytmx.TiledMap
-    ):
+        self,
+        layer: pytmx.TiledTileLayer,
+        level_data: pytmx.TiledMap,
+    ) -> None:
         for x, y, gid in layer:
             properties = level_data.get_tile_properties_by_gid(gid)
             if properties is None:
@@ -292,28 +318,31 @@ class GameEngine:
 
             elif tile_id in self.tile_factory:
                 tile = self.tile_factory[tile_id](
-                    x * BLOCK_SIZE, y * BLOCK_SIZE, properties
+                    x * BLOCK_SIZE,
+                    y * BLOCK_SIZE,
+                    properties,
                 )
 
             if tile:
                 tile.sprite = level_data.get_tile_image_by_gid(gid)
 
     def _process_object_layer(
-        self, layer: pytmx.TiledObjectGroup, level_data: pytmx.TiledMap
+        self,
+        layer: pytmx.TiledObjectGroup,
+        level_data: pytmx.TiledMap,
     ):
-
         for obj in layer:
             obj: pytmx.TiledObject
             x, y = obj.x, obj.y
             obj_id = obj.properties["id"]
-            tile: Optional[Part] = None
+            tile: Part | None = None
 
             if obj_id in self.tile_factory:
                 tile = self.tile_factory[obj_id](x, y, obj.properties)
                 tile.sprite = level_data.get_tile_image_by_gid(obj.gid)
 
     def handle_events(self) -> bool:
-        """Process pygame events"""
+        """Process pygame events."""
         running = True
         for event in pygame.event.get():
             match event.type:
@@ -329,8 +358,8 @@ class GameEngine:
 
         return running
 
-    def handle_mouse_click(self, mouse_pos: Tuple[int, int]):
-        """Process mouse click events"""
+    def handle_mouse_click(self, mouse_pos: tuple[int, int]):
+        """Process mouse click events."""
         match self.game_state:
             case State.MENU:
                 if self.start_button_rect.collidepoint(mouse_pos):
@@ -347,9 +376,11 @@ class GameEngine:
 
             case State.PLAYING:
                 if self.sidebar_visible:
-
                     if self.sidebar_rect.collidepoint(mouse_pos) or not pygame.Rect(
-                        -self.sidebar_x, 0, self.sidebar_width, HEIGHT
+                        -self.sidebar_x,
+                        0,
+                        self.sidebar_width,
+                        HEIGHT,
                     ).collidepoint(mouse_pos):
                         self.sidebar_visible = False
                         return True
@@ -419,14 +450,15 @@ class GameEngine:
 
         return True
 
-    def handle_mouse_motion(self, pos: Tuple[int, int]):
+    def handle_mouse_motion(self, pos: tuple[int, int]):
         if not self.sidebar_visible:
             return True
 
         self.selected_option = None
         for i, option in enumerate(self.sidebar_options):
             option_rect = pygame.Rect(
-                (self.sidebar_x + 30, 150 + i * 40), self.sidebar_font.size(option)
+                (self.sidebar_x + 30, 150 + i * 40),
+                self.sidebar_font.size(option),
             )
             if option_rect.collidepoint(pos):
                 self.selected_option = i
@@ -434,11 +466,11 @@ class GameEngine:
 
         return True
 
-    def handle_keydown(self, key: int):
+    def handle_keydown(self, key: int) -> bool:
         return True
 
-    def fade_transition(self, duration=400):
-        """Create a fade transition effect"""
+    def fade_transition(self, duration=400) -> None:
+        """Create a fade transition effect."""
         fade_surface = pygame.Surface((WIDTH, HEIGHT))
         fade_surface.fill(WHITE)
 
@@ -450,8 +482,8 @@ class GameEngine:
             pygame.display.flip()
             pygame.time.delay(step_delay)
 
-    def update(self):
-        """Update game state and physics"""
+    def update(self) -> None:
+        """Update game state and physics."""
         if self.game_state != State.PLAYING:
             return
 
@@ -459,13 +491,14 @@ class GameEngine:
             self.sidebar_x = min(0, self.sidebar_x + self.sidebar_speed)
         else:
             self.sidebar_x = max(
-                -self.sidebar_width, self.sidebar_x - self.sidebar_speed
+                -self.sidebar_width,
+                self.sidebar_x - self.sidebar_speed,
             )
 
         # Step physics
         dt = 1.0 / FPS
         steps = 100
-        for i in range(steps):
+        for _ in range(steps):
             self.space.step(dt / steps)
 
         for part in self.dynamics:
@@ -478,7 +511,8 @@ class GameEngine:
         # Update move indicators
         if self.selected:
             self.move_indicators = self.selected.calculate_move_indicators(
-                self.space, self.dynamics
+                self.space,
+                self.dynamics,
             )
         else:
             self.move_indicators.clear()
@@ -494,8 +528,8 @@ class GameEngine:
                 self.fade_transition()
                 self.game_state = State.MENU
 
-    def render(self):
-        """Render game objects to screen"""
+    def render(self) -> None:
+        """Render game objects to screen."""
         # Clear the screen
         self.screen.fill(WHITE)
 
@@ -510,16 +544,16 @@ class GameEngine:
 
         pygame.display.flip()
 
-    def _render_menu(self):
+    def _render_menu(self) -> None:
         self.screen.blit(self.start_bg, (0, 0))
         self.screen.blit(self.start_button, self.start_button_rect)
 
-    def _render_level_select(self):
+    def _render_level_select(self) -> None:
         self.screen.blit(self.level_select_bg, (0, 0))
         for img, rect in self.level_buttons:
             self.screen.blit(img, rect)
 
-    def _render_game(self):
+    def _render_game(self) -> None:
         # Create transparent surface for indicators
         self.indicator_surface.fill((0, 0, 0, 0))
 
@@ -549,7 +583,11 @@ class GameEngine:
         self.screen.blit(self.indicator_surface, (0, 0))
 
         # Display current level
-        level_text = self.hud_font.render(f"Level {self.current_level}", True, BLACK)
+        level_text = self.hud_font.render(
+            f"Level {self.current_level}",
+            True,
+            BLACK,
+        )
         self.screen.blit(level_text, (WIDTH - level_text.get_width() - 10, 10))
 
     def _render_sidebar(self):
@@ -557,14 +595,18 @@ class GameEngine:
 
         for i, option in enumerate(self.sidebar_options):
             color = PURPLE if i == self.selected_option else BLACK
-            option_text = self.sidebar_font.render(option, True, color)
+            option_text = self.sidebar_font.render(
+                option,
+                True,
+                color,
+            )
             self.screen.blit(option_text, (self.sidebar_x + 30, 150 + i * 40))
 
         icon = self.sidebar_icon2 if self.sidebar_visible else self.sidebar_icon1
         self.screen.blit(icon, self.sidebar_rect.topleft)
 
-    def run_game_loop(self):
-        """Main game loop"""
+    def run_game_loop(self) -> None:
+        """Run the main game loop."""
         running = True
         while running:
             running = self.handle_events()
@@ -574,29 +616,29 @@ class GameEngine:
 
 
 class Part:
-    """Base class for all physical objects in the game"""
+    """Base class for all physical objects in the game."""
 
     def __init__(
         self,
         x: int,
         y: int,
-        width=BLOCK_SIZE,
-        height=BLOCK_SIZE,
-        block_offset=(0, 0),
-        body_type=pymunk.Body.DYNAMIC,
+        width: int = BLOCK_SIZE,
+        height: int = BLOCK_SIZE,
+        block_offset: tuple[int, int] = (0, 0),
+        body_type: int = pymunk.Body.DYNAMIC,
         game_engine: GameEngine | None = None,
-        properties: Dict[str, Any] = None,
+        properties: dict | None = None,
     ):
-        if properties == None:
-            self.properties: Dict[str, Any] = {}
+        if properties is None:
+            self.properties: dict = {}
         else:
             self.properties = properties
 
         self.width: int = width
         self.height: int = height
-        self.offset: Tuple[int, int] = block_offset
+        self.offset: tuple[int, int] = block_offset
         self.visible: bool = True
-        self._sprite: Optional[pygame.Surface] = None
+        self._sprite: pygame.Surface | None = None
 
         # Create physics body
         self.body: pymunk.Body = pymunk.Body(body_type=body_type)
@@ -615,11 +657,11 @@ class Part:
         if game_engine:
             game_engine.add_part(self)
 
-    def on_physics(self, dt: float, space: pymunk.Space):
+    def on_physics(self, dt: float, space: pymunk.Space) -> None:
         pass
 
-    def draw(self, surface: pygame.Surface):
-        """Draw the part to the given surface"""
+    def draw(self, surface: pygame.Surface) -> None:
+        """Draw the part to the given surface."""
         if not self.visible:
             return
 
@@ -627,7 +669,8 @@ class Part:
         if self.sprite is not None:
             # Rotate sprite based on body angle
             rotated = pygame.transform.rotate(
-                self.sprite, -math.degrees(self.body.angle)
+                self.sprite,
+                -math.degrees(self.body.angle),
             )
 
             x, y = self.body.position
@@ -643,8 +686,8 @@ class Part:
             pygame.draw.polygon(surface, (0, 0, 0), pygame_vertices)
 
     @property
-    def rect(self):
-        """Get pygame Rect for collision detection"""
+    def rect(self) -> pygame.Rect:
+        """Get pygame Rect for collision detection."""
         x, y = self.body.position
         return pygame.Rect(
             x - self.width / 2,
@@ -654,20 +697,27 @@ class Part:
         )
 
     @property
-    def sprite(self):
+    def sprite(self) -> pygame.Surface | None:
         return self._sprite
 
     @sprite.setter
-    def sprite(self, value):
-        """Set the sprite"""
+    def sprite(self, value: pygame.Surface) -> None:
+        """Set the part's sprite."""
         if isinstance(value, pygame.Surface):
             self._sprite = value
         else:
-            raise ValueError(f"Invalid sprite type: {type(value)}")
+            msg = f"Invalid sprite type: {type(value)}"
+            raise TypeError(msg)
 
 
 class ThroughFloor(Part):
-    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties=None,
+    ):
         super().__init__(
             x,
             y,
@@ -680,7 +730,13 @@ class ThroughFloor(Part):
 
 
 class IceBlock(Part):
-    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties=None,
+    ):
         super().__init__(
             x,
             y,
@@ -692,7 +748,13 @@ class IceBlock(Part):
 
 
 class SpikeLeft(Part):
-    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties=None,
+    ):
         super().__init__(
             x,
             y,
@@ -705,7 +767,13 @@ class SpikeLeft(Part):
 
 
 class SpikeUp(Part):
-    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties=None,
+    ):
         super().__init__(
             x,
             y,
@@ -718,7 +786,13 @@ class SpikeUp(Part):
 
 
 class Bouncy(Part):
-    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties=None,
+    ):
         super().__init__(
             x,
             y,
@@ -731,7 +805,13 @@ class Bouncy(Part):
 
 
 class HorizontalPlatform(Part):
-    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties=None,
+    ):
         super().__init__(
             x,
             y,
@@ -760,7 +840,13 @@ class HorizontalPlatform(Part):
 
 
 class VerticalPlatform(Part):
-    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties=None,
+    ):
         super().__init__(
             x,
             y,
@@ -789,7 +875,13 @@ class VerticalPlatform(Part):
 
 
 class DisappearingBlock(Part):
-    def __init__(self, x, y, game_engine: GameEngine | None = None, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties=None,
+    ):
         super().__init__(
             x,
             y,
@@ -806,7 +898,7 @@ class DisappearingBlock(Part):
         self.regen_timer: float = 0
         self.shape.collision_type = Collision.DISAPPEARING
 
-    def on_physics(self, dt: float, space: pymunk.Space):
+    def on_physics(self, dt: float, space: pymunk.Space) -> None:
         if self.active:
             if self.fading:
                 self.fade_timer += dt
@@ -822,8 +914,8 @@ class DisappearingBlock(Part):
                 self.regen_timer = 0
                 space.add(self.shape, self.body)
 
-    def draw(self, surface: pygame.Surface):
-        """Draw the part to the given surface"""
+    def draw(self, surface: pygame.Surface) -> None:
+        """Draw the part to the given surface."""
         if not self.visible:
             return
 
@@ -831,7 +923,8 @@ class DisappearingBlock(Part):
         if self.sprite is not None:
             # Rotate sprite based on body angle
             rotated = pygame.transform.rotate(
-                self.sprite, -math.degrees(self.body.angle)
+                self.sprite,
+                -math.degrees(self.body.angle),
             )
 
             if self.active:
@@ -854,7 +947,7 @@ class DisappearingBlock(Part):
 
 
 class ChessPiece(Part):
-    """Base class for all chess pieces"""
+    """Base class for all chess pieces."""
 
     temp_body = pymunk.Body()
     temp_shape = pymunk.Poly.create_box(
@@ -866,7 +959,12 @@ class ChessPiece(Part):
     )
 
     def __init__(
-        self, x, y, game_engine: GameEngine | None = None, enemy=False, properties=None
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        enemy: bool = False,
+        properties: dict | None = None,
     ):
         super().__init__(
             x,
@@ -880,15 +978,17 @@ class ChessPiece(Part):
         self.shape.collision_type = Collision.PIECE if not enemy else Collision.ENEMY
         self.enemy = enemy
 
-    def get_possible_moves(self) -> List[Generator[Tuple[int, int], None, None]]:
-        """Get all possible move positions relative to current position"""
+    def get_possible_moves(self) -> list[Generator[tuple[int, int], None, None]]:
+        """Get all possible move positions relative to current position."""
         # Each piece will override this
         return []
 
     def calculate_move_indicators(
-        self, space: pymunk.Space, pieces: List["ChessPiece"]
-    ):
-        """Calculate absolute positions for move indicators"""
+        self,
+        space: pymunk.Space,
+        pieces: list[ChessPiece],
+    ) -> list:
+        """Calculate absolute positions for move indicators."""
         moves = self.get_possible_moves()
         angle = self.body.angle
         sin_angle = math.sin(angle)
@@ -940,10 +1040,9 @@ class ChessPiece(Part):
                 if isinstance(self, Pawn):
                     is_capture_move = (dx, dy) in pawn_capture_moves
                     # Pawns can only move diagonally when capturing
-                    if is_capture_move and not enemy_piece:
-                        break
-                    # Pawns can't move forward when blocked
-                    elif not is_capture_move and len(collisions) > 0:
+                    if (is_capture_move and not enemy_piece) or (
+                        not is_capture_move and len(collisions) > 0
+                    ):
                         break
 
                 indicator_positions.append((abs_x, abs_y, enemy_piece))
@@ -951,7 +1050,7 @@ class ChessPiece(Part):
         return indicator_positions
 
     def move_to(self, x, y):
-        """Move the piece to a new position"""
+        """Move the piece to a new position."""
         x0, y0 = self.body.position
         x0 = BLOCK_SIZE / 2 + (x0 // BLOCK_SIZE) * BLOCK_SIZE
         # Round off positions
@@ -963,13 +1062,20 @@ class ChessPiece(Part):
 
 
 class Pawn(ChessPiece):
-    """Pawn chess piece"""
+    """Pawn chess piece."""
 
-    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        enemy: bool = False,
+        properties: dict | None = None,
+    ):
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
         self.moved: bool = False
 
-    def get_possible_moves(self):
+    def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
         if not self.moved:
             return [
                 # 2 blocks North/South/East/West
@@ -978,16 +1084,15 @@ class Pawn(ChessPiece):
                 ((i, 0) for i in range(1, 3)),
                 ((-i, 0) for i in range(1, 3)),
             ]
-        else:
-            return [
-                # 1 block North/South/East/West
-                ((0, -i) for i in range(1, 2)),
-                ((0, i) for i in range(1, 2)),
-                ((i, 0) for i in range(1, 2)),
-                ((-i, 0) for i in range(1, 2)),
-            ]
+        return [
+            # 1 block North/South/East/West
+            ((0, -i) for i in range(1, 2)),
+            ((0, i) for i in range(1, 2)),
+            ((i, 0) for i in range(1, 2)),
+            ((-i, 0) for i in range(1, 2)),
+        ]
 
-    def get_capture_moves(self):
+    def get_capture_moves(self) -> list[Generator[tuple[int, int]]]:
         return [
             (i for i in [(1, -1)]),
             (i for i in [(1, 1)]),
@@ -997,12 +1102,19 @@ class Pawn(ChessPiece):
 
 
 class Knight(ChessPiece):
-    """Knight chess piece"""
+    """Knight chess piece."""
 
-    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        enemy: bool = False,
+        properties: dict | None = None,
+    ):
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
-    def get_possible_moves(self):
+    def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
         # Knights move in L-shape
         return [
             (i for i in [(1, -2)]),
@@ -1017,12 +1129,19 @@ class Knight(ChessPiece):
 
 
 class Bishop(ChessPiece):
-    """Bishop chess piece"""
+    """Bishop chess piece."""
 
-    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        enemy: bool = False,
+        properties: dict | None = None,
+    ):
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
-    def get_possible_moves(self):
+    def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
         # Bishops move diagonally
         return [
             # NE/SE/NW/SW
@@ -1034,12 +1153,19 @@ class Bishop(ChessPiece):
 
 
 class Rook(ChessPiece):
-    """Rook chess piece"""
+    """Rook chess piece."""
 
-    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        enemy: bool = False,
+        properties: dict | None = None,
+    ):
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
-    def get_possible_moves(self):
+    def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
         # Rooks move horizontally and vertically
         return [
             # North/South/East/West
@@ -1051,12 +1177,19 @@ class Rook(ChessPiece):
 
 
 class Queen(ChessPiece):
-    """Queen chess piece"""
+    """Queen chess piece."""
 
-    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        enemy: bool = False,
+        properties: dict | None = None,
+    ):
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
-    def get_possible_moves(self):
+    def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
         # Queens move diagonally, horizontally, and vertically
         return [
             # North/South/East/West
@@ -1073,12 +1206,19 @@ class Queen(ChessPiece):
 
 
 class King(ChessPiece):
-    """King chess piece"""
+    """King chess piece."""
 
-    def __init__(self, x, y, game_engine=None, enemy=False, properties=None):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        enemy: bool = False,
+        properties: dict | None = None,
+    ) -> King:
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
-    def get_possible_moves(self):
+    def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
         # Kings move one square in any direction
         return [
             # North/South/East/West
@@ -1094,17 +1234,16 @@ class King(ChessPiece):
         ]
 
 
-def main():
-    """Main function to run the game"""
+def main() -> None:
+    """Main function to run the game."""
     pygame.init()
     screen = pygame.display.set_mode(
-        (WIDTH, HEIGHT), flags=pygame.RESIZABLE | pygame.SCALED
+        (WIDTH, HEIGHT),
+        flags=pygame.RESIZABLE | pygame.SCALED,
     )
     pygame.display.set_caption("ChessFormer: Unbound")
 
     game = GameEngine(screen)
-    # game.game_state = State.PLAYING
-    # game.generate_level(1)
 
     # Run game loop
     game.run_game_loop()
