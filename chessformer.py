@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -54,12 +54,19 @@ class Collision(IntEnum):
     BOUNCY = auto()
     PASSTHROUGH = auto()
     DISAPPEARING = auto()
+    TELEPORTER = auto()
+
+
+class MovementIndicator(NamedTuple):
+    x: int
+    y: int
+    obstacle: Part
 
 
 class GameEngine:
     """Main game engine that handles physics, rendering and game state."""
 
-    def __init__(self, screen: pygame.Surface):
+    def __init__(self, screen: pygame.Surface) -> GameEngine:
         self.screen = screen
         self.current_level = 1
         self.game_state = State.MENU
@@ -70,7 +77,7 @@ class GameEngine:
         self.kinematics: list[Part] = []
         self.dynamics: list[Part] = []
         self.selected: ChessPiece | None = None
-        self.move_indicators: list[tuple[int, int, ChessPiece]] = []
+        self.move_indicators: list[MovementIndicator] = []
 
         # Initialize physics
         self.space = pymunk.Space()
@@ -179,6 +186,7 @@ class GameEngine:
             25: lambda x, y, p: HorizontalPlatform(x, y, self, properties=p),
             26: lambda x, y, p: VerticalPlatform(x, y, self, properties=p),
             27: lambda x, y, p: DisappearingBlock(x, y, self, properties=p),
+            28: lambda x, y, p: Teleporter(x, y, self, properties=p),
         }
 
     def add_part(self, part: Part | ChessPiece) -> None:
@@ -205,7 +213,8 @@ class GameEngine:
         elif part in self.dynamics:
             self.dynamics.remove(part)
         else:
-            raise RuntimeError("Part not found!")
+            msg = "Part not found!"
+            raise RuntimeError(msg)
 
         if part.body in self.space.bodies and part.shape in self.space.shapes:
             self.space.remove(part.body, part.shape)
@@ -243,7 +252,9 @@ class GameEngine:
         return None
 
     @staticmethod
-    def piece_on_collision(arbiter: pymunk.Arbiter, space: pymunk.Space, data: dict):
+    def piece_on_collision(
+        arbiter: pymunk.Arbiter, _space: pymunk.Space, data: dict
+    ) -> bool:
         piece_shape, other_shape = arbiter.shapes
 
         piece: ChessPiece = data["engine"].find_part(piece_shape)
@@ -267,8 +278,10 @@ class GameEngine:
                 return contacts.normal.y >= 0
             case Collision.DISAPPEARING:
                 other: DisappearingBlock
-                other.fading = other.active
-                return other.active
+                other.fading = True
+                return True
+            case Collision.TELEPORTER:
+                return False
 
         return True
 
@@ -291,7 +304,8 @@ class GameEngine:
             # Switch to playing state
             self.game_state = State.PLAYING
 
-        except Exception:
+        except Exception as e:
+            print(e)
             self.game_state = State.LEVEL_SELECT
 
     def _process_tile_layer(
@@ -330,7 +344,7 @@ class GameEngine:
         self,
         layer: pytmx.TiledObjectGroup,
         level_data: pytmx.TiledMap,
-    ):
+    ) -> None:
         for obj in layer:
             obj: pytmx.TiledObject
             x, y = obj.x, obj.y
@@ -350,87 +364,108 @@ class GameEngine:
                     running = False
                 case pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:  # Left click
-                        running = self.handle_mouse_click(pygame.mouse.get_pos())
+                        running = self._handle_mouse_click(pygame.mouse.get_pos())
                 case pygame.MOUSEMOTION:
-                    running = self.handle_mouse_motion(event.pos)
+                    running = self._handle_mouse_motion(event.pos)
                 case pygame.KEYDOWN:
-                    running = self.handle_keydown(event.key)
+                    running = self._handle_keydown(event.key)
 
         return running
 
-    def handle_mouse_click(self, mouse_pos: tuple[int, int]):
+    def _handle_mouse_click(self, mouse_pos: tuple[int, int]) -> bool:
         """Process mouse click events."""
         match self.game_state:
             case State.MENU:
-                if self.start_button_rect.collidepoint(mouse_pos):
-                    self.fade_transition()
-                    self.game_state = State.LEVEL_SELECT
-
+                return self._handle_menu_click(mouse_pos)
             case State.LEVEL_SELECT:
-                for i, (_, rect) in enumerate(self.level_buttons):
-                    if rect.collidepoint(mouse_pos):
-                        self.fade_transition()
-                        self.clear_level()
-                        self.generate_level(i + 1)
+                return self._handle_level_select_click(mouse_pos)
+            case State.PLAYING:
+                return self._handle_playing_click(mouse_pos)
+
+        return True
+
+    def _handle_menu_click(self, mouse_pos: tuple[int, int]) -> bool:
+        if self.start_button_rect.collidepoint(mouse_pos):
+            self.fade_transition()
+            self.game_state = State.LEVEL_SELECT
+        return True
+
+    def _handle_level_select_click(self, mouse_pos: tuple[int, int]) -> bool:
+        for i, (_, rect) in enumerate(self.level_buttons):
+            if rect.collidepoint(mouse_pos):
+                self.fade_transition()
+                self.clear_level()
+                self.generate_level(i + 1)
+                break
+        return True
+
+    def _handle_playing_click(self, mouse_pos: tuple[int, int]) -> bool:
+        if self.sidebar_visible:
+            if self.sidebar_rect.collidepoint(mouse_pos) or not pygame.Rect(
+                -self.sidebar_x,
+                0,
+                self.sidebar_width,
+                HEIGHT,
+            ).collidepoint(mouse_pos):
+                self.sidebar_visible = False
+                return True
+
+            for i, option in enumerate(self.sidebar_options):
+                option_rect = pygame.Rect(
+                    (self.sidebar_x + 30, 150 + i * 40),
+                    self.sidebar_font.size(option),
+                )
+                if option_rect.collidepoint(mouse_pos):
+                    return self.handle_option_click(option)
+
+        elif self.sidebar_rect.collidepoint(mouse_pos):
+            self.sidebar_visible = True
+            return True
+
+        moved = False
+        if self.selected:
+            for indicator_x, indicator_y, obstacle in self.move_indicators:
+                # Create a rect for hit detection on indicators
+                indicator_rect = pygame.Rect(
+                    indicator_x - (BLOCK_SIZE / 2),
+                    indicator_y - (BLOCK_SIZE / 2),
+                    BLOCK_SIZE,
+                    BLOCK_SIZE,
+                )
+
+                if indicator_rect.collidepoint(mouse_pos):
+                    # Check if this is a capture move
+                    if isinstance(obstacle, ChessPiece):
+                        self.remove_part(obstacle)
+
+                    if isinstance(obstacle, Teleporter):
+                        self.selected.move_to(
+                            obstacle.destination_x * BLOCK_SIZE,
+                            obstacle.destination_y * BLOCK_SIZE,
+                        )
+                        moved = True
+                        if isinstance(self.selected, Pawn):
+                            self.selected.moved = True
+                        self.selected = None
                         break
 
-            case State.PLAYING:
-                if self.sidebar_visible:
-                    if self.sidebar_rect.collidepoint(mouse_pos) or not pygame.Rect(
-                        -self.sidebar_x,
-                        0,
-                        self.sidebar_width,
-                        HEIGHT,
-                    ).collidepoint(mouse_pos):
-                        self.sidebar_visible = False
-                        return True
+                    # Teleport selected piece to this indicator position
+                    self.selected.move_to(indicator_x, indicator_y, velocity=True)
+                    moved = True
+                    if isinstance(self.selected, Pawn):
+                        self.selected.moved = True
+                    self.selected = None
+                    break
 
-                    for i, option in enumerate(self.sidebar_options):
-                        option_rect = pygame.Rect(
-                            (self.sidebar_x + 30, 150 + i * 40),
-                            self.sidebar_font.size(option),
-                        )
-                        if option_rect.collidepoint(mouse_pos):
-                            return self.handle_option_click(option)
+            if not moved:
+                self.selected = None
 
-                elif self.sidebar_rect.collidepoint(mouse_pos):
-                    self.sidebar_visible = True
-                    return True
-
-                moved = False
-                if self.selected:
-                    for indicator_x, indicator_y, enemy_piece in self.move_indicators:
-                        # Create a rect for hit detection on indicators
-                        indicator_rect = pygame.Rect(
-                            indicator_x - (BLOCK_SIZE / 2),
-                            indicator_y - (BLOCK_SIZE / 2),
-                            BLOCK_SIZE,
-                            BLOCK_SIZE,
-                        )
-
-                        if indicator_rect.collidepoint(mouse_pos):
-                            # Check if this is a capture move
-                            if enemy_piece:
-                                self.remove_part(enemy_piece)
-
-                            # Teleport selected piece to this indicator position
-                            self.selected.move_to(indicator_x, indicator_y)
-                            moved = True
-                            if isinstance(self.selected, Pawn):
-                                self.selected.moved = True
-                            self.selected = None
-                            break
-
-                    if not moved:
-                        self.selected = None
-
-                # Check if clicked on a piece
-                if self.selected is None and not moved:
-                    for piece in self.dynamics:
-                        if not piece.enemy and piece.rect.collidepoint(mouse_pos):
-                            self.selected = piece
-                            break
-
+        # Check if clicked on a piece
+        if self.selected is None and not moved:
+            for piece in self.dynamics:
+                if not piece.enemy and piece.rect.collidepoint(mouse_pos):
+                    self.selected = piece
+                    break
         return True
 
     def handle_option_click(self, option: str) -> bool:
@@ -450,7 +485,7 @@ class GameEngine:
 
         return True
 
-    def handle_mouse_motion(self, pos: tuple[int, int]):
+    def _handle_mouse_motion(self, pos: tuple[int, int]) -> None:
         if not self.sidebar_visible:
             return True
 
@@ -466,10 +501,10 @@ class GameEngine:
 
         return True
 
-    def handle_keydown(self, key: int) -> bool:
+    def _handle_keydown(self, _key: int) -> bool:
         return True
 
-    def fade_transition(self, duration=400) -> None:
+    def fade_transition(self, duration: int = 400) -> None:
         """Create a fade transition effect."""
         fade_surface = pygame.Surface((WIDTH, HEIGHT))
         fade_surface.fill(WHITE)
@@ -509,10 +544,13 @@ class GameEngine:
             part.on_physics(dt, self.space)
 
         # Update move indicators
+        parts = []
+        parts.extend(self.dynamics)
+        parts.extend(self.kinematics)
+        parts.extend(self.statics)
         if self.selected:
             self.move_indicators = self.selected.calculate_move_indicators(
-                self.space,
-                self.dynamics,
+                self.space, parts
             )
         else:
             self.move_indicators.clear()
@@ -558,8 +596,10 @@ class GameEngine:
         self.indicator_surface.fill((0, 0, 0, 0))
 
         # Draw move indicators
-        for indicator_x, indicator_y, enemy_piece in self.move_indicators:
-            color = CAPTURE_INDICATOR_COLOR if enemy_piece else INDICATOR_COLOR
+        for indicator_x, indicator_y, obstacle in self.move_indicators:
+            color = INDICATOR_COLOR
+            if obstacle and isinstance(obstacle, ChessPiece):
+                color = CAPTURE_INDICATOR_COLOR
             pygame.draw.circle(
                 self.indicator_surface,
                 (*color, INDICATOR_ALPHA),
@@ -572,11 +612,11 @@ class GameEngine:
             self.screen.blit(bg, (0, 0))
 
         # Draw all parts
-        for obj in self.dynamics:
-            obj.draw(self.screen)
         for obj in self.kinematics:
             obj.draw(self.screen)
         for obj in self.statics:
+            obj.draw(self.screen)
+        for obj in self.dynamics:
             obj.draw(self.screen)
 
         # Blit the transparent indicator surface
@@ -590,7 +630,7 @@ class GameEngine:
         )
         self.screen.blit(level_text, (WIDTH - level_text.get_width() - 10, 10))
 
-    def _render_sidebar(self):
+    def _render_sidebar(self) -> None:
         self.screen.blit(self.sidebar_bg, (self.sidebar_x, 0))
 
         for i, option in enumerate(self.sidebar_options):
@@ -628,7 +668,7 @@ class Part:
         body_type: int = pymunk.Body.DYNAMIC,
         game_engine: GameEngine | None = None,
         properties: dict | None = None,
-    ):
+    ) -> Part:
         if properties is None:
             self.properties: dict = {}
         else:
@@ -637,7 +677,6 @@ class Part:
         self.width: int = width
         self.height: int = height
         self.offset: tuple[int, int] = block_offset
-        self.visible: bool = True
         self._sprite: pygame.Surface | None = None
 
         # Create physics body
@@ -662,8 +701,6 @@ class Part:
 
     def draw(self, surface: pygame.Surface) -> None:
         """Draw the part to the given surface."""
-        if not self.visible:
-            return
 
         vertices = [self.body.local_to_world(v) for v in self.shape.get_vertices()]
         if self.sprite is not None:
@@ -716,8 +753,8 @@ class ThroughFloor(Part):
         x: int,
         y: int,
         game_engine: GameEngine | None = None,
-        properties=None,
-    ):
+        properties: dict | None = None,
+    ) -> ThroughFloor:
         super().__init__(
             x,
             y,
@@ -735,8 +772,8 @@ class IceBlock(Part):
         x: int,
         y: int,
         game_engine: GameEngine | None = None,
-        properties=None,
-    ):
+        properties: dict | None = None,
+    ) -> IceBlock:
         super().__init__(
             x,
             y,
@@ -753,8 +790,8 @@ class SpikeLeft(Part):
         x: int,
         y: int,
         game_engine: GameEngine | None = None,
-        properties=None,
-    ):
+        properties: dict | None = None,
+    ) -> SpikeLeft:
         super().__init__(
             x,
             y,
@@ -772,8 +809,8 @@ class SpikeUp(Part):
         x: int,
         y: int,
         game_engine: GameEngine | None = None,
-        properties=None,
-    ):
+        properties: dict | None = None,
+    ) -> SpikeUp:
         super().__init__(
             x,
             y,
@@ -791,8 +828,8 @@ class Bouncy(Part):
         x: int,
         y: int,
         game_engine: GameEngine | None = None,
-        properties=None,
-    ):
+        properties: dict | None = None,
+    ) -> Bouncy:
         super().__init__(
             x,
             y,
@@ -810,8 +847,8 @@ class HorizontalPlatform(Part):
         x: int,
         y: int,
         game_engine: GameEngine | None = None,
-        properties=None,
-    ):
+        properties: dict | None = None,
+    ) -> HorizontalPlatform:
         super().__init__(
             x,
             y,
@@ -829,7 +866,7 @@ class HorizontalPlatform(Part):
             0,
         )
 
-    def on_physics(self, dt: float, space: pymunk.Space):
+    def on_physics(self, _dt: float, _space: pymunk.Space) -> None:
         x, y = self.body.position
         if x <= self.left_bound:
             self.body.velocity = (self.speed * BLOCK_SIZE, 0)
@@ -845,8 +882,8 @@ class VerticalPlatform(Part):
         x: int,
         y: int,
         game_engine: GameEngine | None = None,
-        properties=None,
-    ):
+        properties: dict | None = None,
+    ) -> VerticalPlatform:
         super().__init__(
             x,
             y,
@@ -864,7 +901,7 @@ class VerticalPlatform(Part):
             self.properties.get("initial_speed", 1) * BLOCK_SIZE,
         )
 
-    def on_physics(self, dt: float, space: pymunk.Space):
+    def on_physics(self, _dt: float, _space: pymunk.Space) -> None:
         x, y = self.body.position
         if y <= self.up_bound:
             self.body.velocity = (0, self.speed * BLOCK_SIZE)
@@ -880,8 +917,8 @@ class DisappearingBlock(Part):
         x: int,
         y: int,
         game_engine: GameEngine | None = None,
-        properties=None,
-    ):
+        properties: dict | None = None,
+    ) -> DisappearingBlock:
         super().__init__(
             x,
             y,
@@ -916,8 +953,6 @@ class DisappearingBlock(Part):
 
     def draw(self, surface: pygame.Surface) -> None:
         """Draw the part to the given surface."""
-        if not self.visible:
-            return
 
         vertices = [self.body.local_to_world(v) for v in self.shape.get_vertices()]
         if self.sprite is not None:
@@ -946,6 +981,28 @@ class DisappearingBlock(Part):
             pygame.draw.polygon(surface, (0, 0, 0), pygame_vertices)
 
 
+class Teleporter(Part):
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        game_engine: GameEngine | None = None,
+        properties: dict | None = None,
+    ) -> Teleporter:
+        super().__init__(
+            x,
+            y,
+            body_type=pymunk.Body.STATIC,
+            game_engine=game_engine,
+            properties=properties,
+        )
+        self.destination_x: int = self.properties.get("destination_x")
+        self.destination_y: int = self.properties.get("destination_y")
+        self.shape.collision_type = Collision.TELEPORTER
+        assert self.destination_x is not None, "set destination_x"
+        assert self.destination_y is not None, "set destination_y"
+
+
 class ChessPiece(Part):
     """Base class for all chess pieces."""
 
@@ -965,7 +1022,7 @@ class ChessPiece(Part):
         game_engine: GameEngine | None = None,
         enemy: bool = False,
         properties: dict | None = None,
-    ):
+    ) -> ChessPiece:
         super().__init__(
             x,
             y,
@@ -986,7 +1043,7 @@ class ChessPiece(Part):
     def calculate_move_indicators(
         self,
         space: pymunk.Space,
-        pieces: list[ChessPiece],
+        parts: list[Part],
     ) -> list:
         """Calculate absolute positions for move indicators."""
         moves = self.get_possible_moves()
@@ -1025,16 +1082,32 @@ class ChessPiece(Part):
                 enemy_piece = next(
                     (
                         p
-                        for p in pieces
-                        if p.enemy and any(c.shape == p.shape for c in collisions)
+                        for p in parts
+                        if isinstance(p, ChessPiece)
+                        and p.enemy
+                        and any(c.shape == p.shape for c in collisions)
                     ),
                     None,
                 )
 
-                if len(collisions) > 0 and enemy_piece is None:
+                teleporter = next(
+                    (
+                        t
+                        for t in parts
+                        if isinstance(t, Teleporter)
+                        and any(c.shape == t.shape for c in collisions)
+                    ),
+                    None,
+                )
+
+                obstacle = enemy_piece or teleporter
+
+                if len(collisions) > 0 and obstacle is None:
                     break
 
-                if any(enemy_piece.shape != c.shape for c in collisions):
+                # can potentially break if two or more pieces/teleporters are close
+                # to each other
+                if obstacle and any(obstacle.shape != c.shape for c in collisions):
                     break
 
                 if isinstance(self, Pawn):
@@ -1045,19 +1118,21 @@ class ChessPiece(Part):
                     ):
                         break
 
-                indicator_positions.append((abs_x, abs_y, enemy_piece))
+                indicator_positions.append(MovementIndicator(abs_x, abs_y, obstacle))
 
         return indicator_positions
 
-    def move_to(self, x, y):
+    def move_to(self, x: int, y: int, velocity: bool = False) -> None:
         """Move the piece to a new position."""
         x0, y0 = self.body.position
         x0 = BLOCK_SIZE / 2 + (x0 // BLOCK_SIZE) * BLOCK_SIZE
+        y0 = BLOCK_SIZE / 2 + (y0 // BLOCK_SIZE) * BLOCK_SIZE
         # Round off positions
         x1 = BLOCK_SIZE / 2 + (x // BLOCK_SIZE) * BLOCK_SIZE
         y1 = BLOCK_SIZE / 2 + (y // BLOCK_SIZE) * BLOCK_SIZE
         self.body.position = x1, y1
-        self.body.velocity = (x1 - x0) / 8, 0
+        if velocity:
+            self.body.velocity = (x1 - x0) / 8, 0
         self.body.angle = 0
 
 
@@ -1071,7 +1146,7 @@ class Pawn(ChessPiece):
         game_engine: GameEngine | None = None,
         enemy: bool = False,
         properties: dict | None = None,
-    ):
+    ) -> Pawn:
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
         self.moved: bool = False
 
@@ -1111,7 +1186,7 @@ class Knight(ChessPiece):
         game_engine: GameEngine | None = None,
         enemy: bool = False,
         properties: dict | None = None,
-    ):
+    ) -> Knight:
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
@@ -1138,7 +1213,7 @@ class Bishop(ChessPiece):
         game_engine: GameEngine | None = None,
         enemy: bool = False,
         properties: dict | None = None,
-    ):
+    ) -> Bishop:
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
@@ -1162,7 +1237,7 @@ class Rook(ChessPiece):
         game_engine: GameEngine | None = None,
         enemy: bool = False,
         properties: dict | None = None,
-    ):
+    ) -> Rook:
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
@@ -1186,7 +1261,7 @@ class Queen(ChessPiece):
         game_engine: GameEngine | None = None,
         enemy: bool = False,
         properties: dict | None = None,
-    ):
+    ) -> Queen:
         super().__init__(x, y, game_engine, enemy=enemy, properties=properties)
 
     def get_possible_moves(self) -> list[Generator[tuple[int, int]]]:
