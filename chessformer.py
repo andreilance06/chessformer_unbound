@@ -70,6 +70,10 @@ class GameEngine:
         self.screen = screen
         self.current_level = 1
         self.game_state = State.MENU
+        pygame.mixer_music.load("./audio/game_music.mp3")
+        pygame.mixer_music.set_volume(0)
+        pygame.mixer_music.play(loops=-1, fade_ms=5000)
+        pygame.mixer_music.set_volume(0.10)
 
         # Game elements
         self.backgrounds: list[pygame.Surface] = []
