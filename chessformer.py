@@ -1149,6 +1149,7 @@ class ChessPiece(Part):
         self.body.position = x1, y1
         if velocity:
             self.body.velocity = (x1 - x0) / 8, 0
+        self.body.angular_velocity = 0
         self.body.angle = 0
 
 
