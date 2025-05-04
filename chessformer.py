@@ -70,6 +70,12 @@ class GameEngine:
         self.screen = screen
         self.current_level = 1
         self.game_state = State.MENU
+
+        self.fade_surface = pygame.Surface((WIDTH, HEIGHT))
+        self.fade_surface.fill(BLACK)
+        self.fade_alpha = 0
+        self.fade_step = 0
+
         pygame.mixer_music.load("./audio/game_music.mp3")
         pygame.mixer_music.set_volume(0)
         pygame.mixer_music.play(loops=-1, fade_ms=5000)
@@ -508,18 +514,20 @@ class GameEngine:
     def _handle_keydown(self, _key: int) -> bool:
         return True
 
-    def fade_transition(self, duration: int = 400) -> None:
+    def fade_transition(self, duration: int = 500) -> None:
         """Create a fade transition effect."""
-        fade_surface = pygame.Surface((WIDTH, HEIGHT))
-        fade_surface.fill(WHITE)
 
-        steps = 256 // 15
-        step_delay = duration // steps
-        for alpha in range(0, 256, 15):
-            fade_surface.set_alpha(alpha)
-            self.screen.blit(fade_surface, (0, 0))
+        frametime = 1000 / FPS
+        steps = duration / frametime / 2
+        self.fade_step = int(255 / steps)
+
+        for alpha in range(0, 256, self.fade_step):
+            self.fade_surface.set_alpha(alpha)
+            self.screen.blit(self.fade_surface, (0, 0))
             pygame.display.flip()
-            pygame.time.delay(step_delay)
+            self.clock.tick(FPS)
+
+        self.fade_alpha = 255
 
     def update(self) -> None:
         """Update game state and physics."""
@@ -583,6 +591,10 @@ class GameEngine:
             case State.PLAYING:
                 self._render_game()
                 self._render_sidebar()
+
+        self.screen.blit(self.fade_surface, (0, 0))
+        self.fade_surface.set_alpha(self.fade_alpha)
+        self.fade_alpha = max(0, self.fade_alpha - self.fade_step)
 
         pygame.display.flip()
 
