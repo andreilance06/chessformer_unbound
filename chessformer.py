@@ -514,20 +514,19 @@ class GameEngine:
     def _handle_keydown(self, _key: int) -> bool:
         return True
 
-    def fade_transition(self, duration: int = 500) -> None:
+    def fade_transition(self, duration_ms: int = 400) -> None:
         """Create a fade transition effect."""
 
         frametime = 1000 / FPS
-        steps = duration / frametime / 2
+        steps = duration_ms / frametime / 2
         self.fade_step = int(255 / steps)
 
-        for alpha in range(0, 256, self.fade_step):
-            self.fade_surface.set_alpha(alpha)
+        while self.fade_alpha < 255:
+            self.fade_alpha = min(255, self.fade_alpha + self.fade_step)
+            self.fade_surface.set_alpha(self.fade_alpha)
             self.screen.blit(self.fade_surface, (0, 0))
             pygame.display.flip()
             self.clock.tick(FPS)
-
-        self.fade_alpha = 255
 
     def update(self) -> None:
         """Update game state and physics."""
