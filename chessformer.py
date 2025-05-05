@@ -72,7 +72,7 @@ class GameEngine:
         self.game_state = State.MENU
 
         self.fade_surface = pygame.Surface((WIDTH, HEIGHT))
-        self.fade_surface.fill(BLACK)
+        self.fade_surface.fill(WHITE)
         self.fade_alpha = 0
         self.fade_step = 0
 
