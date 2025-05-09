@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Callable, NamedTuple, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -37,13 +37,106 @@ FRICTION = 1
 ELASTICITY = 0.5
 DAMPING = 1
 PHYSICS_ITERATIONS = int(6000 / FPS)
+PHYSICS_STEPS_PER_FRAME = 10
+
+T_Object = TypeVar("T_Object", bound="BaseObject")
+T_Component = TypeVar("T_Component", bound="BaseComponent")
+T_State = TypeVar("T_State", bound="BaseState")
 
 
 # Game states
-class State(IntEnum):
-    MENU = auto()
-    LEVEL_SELECT = auto()
-    PLAYING = auto()
+class BaseState:
+    @staticmethod
+    def on_enter(engine: GameManager) -> None:
+        pass
+
+    @staticmethod
+    def on_exit(engine: GameManager) -> None:
+        for obj in engine.objects[:]:
+            engine.remove_object(obj)
+
+
+class TitleScreenState(BaseState):
+    @staticmethod
+    def on_enter(engine: GameManager) -> None:
+        bg = UIObject(
+            sprite=pygame.image.load("./menu_assets/start_bg.png"),
+            z_index=ZIndex.BACKGROUND,
+        )
+        start_button = UIObject(
+            sprite=pygame.image.load("./menu_assets/play_btn.png"),
+            z_index=ZIndex.DEFAULT,
+        )
+
+        start_button.position = (650, 320)
+
+        def start_button_down(button: int) -> None:
+            if button == 1:
+                pygame.event.post(
+                    pygame.event.Event(
+                        UserEvent.REQUEST_STATE, {"state": LevelSelectState}
+                    )
+                )
+
+        start_button.on_mouse_down = start_button_down
+
+        bg.add_component(RenderComponent())
+        start_button.add_component(RenderComponent())
+
+        engine.add_object(bg)
+        engine.add_object(start_button)
+
+
+class LevelSelectState(BaseState):
+    @staticmethod
+    def on_enter(engine: GameManager) -> None:
+        bg = UIObject(
+            sprite=pygame.image.load("./menu_assets/level_bg.png"),
+            z_index=ZIndex.BACKGROUND,
+        )
+
+        bg.add_component(RenderComponent())
+        engine.add_object(bg)
+
+        for i in range(1, 11):
+
+            def lvl_button_down(button: int, lvl: int = i) -> None:
+                if button == 1:
+                    pygame.event.post(
+                        pygame.event.Event(
+                            UserEvent.REQUEST_STATE, {"state": PlayingState}
+                        )
+                    )
+                    pygame.event.post(
+                        pygame.event.Event(UserEvent.REQUEST_LEVEL, {"level": lvl})
+                    )
+
+            button = UIObject(
+                sprite=pygame.image.load(f"./menu_assets/lvl{i}_btn.png"),
+                z_index=ZIndex.DEFAULT - i,
+            )
+            button.position = (100 + ((i - 1) % 5 * 150), 150 + ((i - 1) // 5 * 130))
+            button.on_mouse_down = lvl_button_down
+            button.add_component(RenderComponent())
+            engine.add_object(button)
+
+
+class PlayingState(BaseState):
+    @staticmethod
+    def on_enter(engine: GameManager) -> None:
+        pass
+
+
+class UserEvent(IntEnum):
+    REQUEST_STATE = pygame.event.custom_type()
+    REQUEST_LEVEL = pygame.event.custom_type()
+    ERASE_OBJECTS = pygame.event.custom_type()
+
+
+class ZIndex(IntEnum):
+    DEFAULT = 50
+    HUD = 25
+    BACKGROUND = 75
 
 
 class Collision(IntEnum):
@@ -63,13 +156,403 @@ class MovementIndicator(NamedTuple):
     obstacle: Part
 
 
+class BaseObject:
+    def __init__(self, *_args: tuple, **_kwargs: dict) -> None:
+        self.components: dict[type[T_Component], T_Component] = {}
+
+    def add_component(self, *args: T_Component) -> None:
+        for component in args:
+            if isinstance(component, BaseComponent):
+                component.owner = self
+                self.components[type(component)] = component
+                component.on_add()
+            else:
+                msg = f"Cannot add '{component}' as component"
+                raise TypeError(msg)
+
+    def remove_component(self, component_type: type[T_Component]) -> None:
+        if component_type in self.components:
+            component = self.components.pop(component_type, None)
+            component.on_remove()
+        else:
+            msg = f"No '{component_type}' in object '{type(self)}'"
+            raise KeyError(msg)
+
+    def get_component(self, component_type: type[T_Component]) -> T_Component:
+        if component_type in self.components:
+            return self.components[component_type]
+
+        msg = f"No '{component_type}' in object '{type(self)}'"
+        raise KeyError(msg)
+
+
+class Drawable(BaseObject):
+    def __init__(
+        self,
+        *args: tuple,
+        sprite: pygame.Surface | None = None,
+        offset: tuple[int, int] = (0, 0),
+        z_index: int = ZIndex.DEFAULT,
+        **kwargs: dict,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._sprite = sprite
+        self.sprite = sprite and self._sprite.copy()
+        self.offset = offset
+        self.z_index = z_index
+
+    def get_position(self) -> tuple[int, int]:
+        raise NotImplementedError
+
+    def get_size(self) -> tuple[int, int]:
+        raise NotImplementedError
+
+    def get_angle(self) -> float:
+        raise NotImplementedError
+
+    def is_hover(self, pos: tuple[int, int]) -> bool:
+        pass
+
+    def on_hover(self) -> None:
+        pass
+
+    def on_unhover(self) -> None:
+        pass
+
+    def on_mouse_down(self, mouse_button: int) -> None:
+        pass
+
+    def on_mouse_up(self, mouse_button: int) -> None:
+        pass
+
+
+class UIObject(Drawable):
+    def __init__(self, *args: tuple, **kwargs: dict) -> None:
+        super().__init__(*args, **kwargs)
+        self.position: tuple[int, int] = (0, 0)
+
+    def get_position(self) -> tuple[int, int]:
+        topleftx, toplefty = self.position
+        width, height = self.get_size()
+        return (topleftx + width / 2, toplefty + height / 2)
+
+    def get_size(self) -> tuple[int, int]:
+        return self.sprite.get_size()
+
+    def get_angle(self) -> float:
+        return 0
+
+    def is_hover(self, pos: tuple[int, int]) -> bool:
+        return pygame.Rect(self.position, self.get_size()).collidepoint(pos)
+
+
+class PhysicsObject(Drawable):
+    def __init__(
+        self,
+        *args: tuple,
+        size: pymunk.Vec2d = (BLOCK_SIZE, BLOCK_SIZE),
+        body_type: int = pymunk.Body.DYNAMIC,
+        **kwargs: dict,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.size = size
+        self.body = pymunk.Body(body_type=body_type)
+        self.shape = pymunk.Poly.create_box(self.body, size)
+        self.shape.mass = 1
+
+    def get_position(self) -> tuple[int, int]:
+        return self.body.position
+
+    def get_size(self) -> tuple[int, int]:
+        return self.size
+
+    def get_angle(self) -> float:
+        return self.body.angle
+
+    def on_hover(self) -> None:
+        self.sprite.fill(RED)
+
+    def on_unhover(self) -> None:
+        self.sprite = self._sprite.copy()
+
+    def is_hover(self, pos: tuple[int, int]) -> bool:
+        return self.shape.point_query(pos).distance <= 0
+
+
+class BaseComponent:
+    def __init__(self) -> None:
+        self.owner: T_Object | None
+
+    def on_add(self) -> None:
+        pass
+
+    def on_remove(self) -> None:
+        pass
+
+    def update(self, dt: float) -> None:
+        pass
+
+
+class RenderComponent[T: Drawable](BaseComponent):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def draw(self, surface: pygame.Surface) -> None:
+        self.owner: T
+        owner = self.owner
+
+        img = owner.sprite or pygame.Surface(owner.get_size())
+        rotated = pygame.transform.rotate(img, -math.degrees(owner.get_angle()))
+
+        x, y = owner.get_position()
+
+        surface.blit(
+            rotated,
+            (
+                x - rotated.get_width() / 2 - owner.offset[0],
+                y - rotated.get_height() / 2 - owner.offset[1],
+            ),
+        )
+
+    def on_add(self) -> None:
+        required = ["get_position", "get_size", "get_angle", "sprite", "z_index"]
+        for member in required:
+            if not hasattr(self.owner, member):
+                msg = f"{self.owner} does not have member '{member}'"
+                raise NotImplementedError(msg)
+
+
+class BaseSystem:
+    def __init__(self, engine: GameManager) -> None:
+        self.engine = engine
+        self.event_mapping: dict[int, Callable] = {}
+
+    def handle_event(self, event: pygame.event.Event) -> None:
+        handler: Callable | None = self.event_mapping.get(event.type)
+        if handler is not None:
+            handler(event)
+
+    def update(self, dt: float) -> None:
+        pass
+
+
+class StateSystem(BaseSystem):
+    def __init__(self, *args: tuple, **kwargs: dict) -> None:
+        super().__init__(*args, **kwargs)
+        self.event_mapping = {
+            UserEvent.REQUEST_STATE: lambda event: self._change_state(event.state)
+        }
+        self._change_state(TitleScreenState)
+
+    def _change_state(self, state: T_State) -> None:
+        engine = self.engine
+        if engine.state:
+            engine.state.on_exit(engine)
+        engine.state = state
+        engine.state.on_enter(engine)
+
+
+class InputSystem(BaseSystem):
+    def __init__(self, *args: tuple, **kwargs: dict) -> None:
+        super().__init__(*args, **kwargs)
+        self.event_mapping: dict[int, Callable] = {
+            pygame.MOUSEMOTION: lambda event: self._on_mouse_moved(event.pos),
+            pygame.MOUSEBUTTONDOWN: lambda event: self._on_mouse_down(event.button),
+            pygame.MOUSEBUTTONUP: lambda event: self._on_mouse_up(event.button),
+            pygame.WINDOWLEAVE: lambda _: self._on_window_leave(),
+        }
+
+    def _on_mouse_moved(self, pos: tuple[int, int]) -> None:
+        engine = self.engine
+        hovering_objs = (
+            obj
+            for obj in engine.objects
+            if isinstance(obj, Drawable) and obj.is_hover(pos)
+        )
+        hovering = min(hovering_objs, key=lambda obj: obj.z_index, default=None)
+
+        if hovering == engine.hovering_object:
+            return
+
+        if engine.hovering_object is not None:
+            engine.hovering_object.on_unhover()
+        engine.hovering_object = hovering
+        if engine.hovering_object is not None:
+            engine.hovering_object.on_hover()
+
+    def _on_mouse_down(self, button: int) -> None:
+        if self.engine.hovering_object is not None:
+            self.engine.hovering_object.on_mouse_down(button)
+
+    def _on_mouse_up(self, button: int) -> None:
+        if self.engine.hovering_object is not None:
+            self.engine.hovering_object.on_mouse_up(button)
+
+    def _on_window_leave(self) -> None:
+        engine = self.engine
+        if engine.hovering_object is not None:
+            engine.hovering_object.on_unhover()
+
+
+class UISystem(BaseSystem):
+    def __init__(self, *args: tuple, **kwargs: dict) -> None:
+        super().__init__(*args, **kwargs)
+
+
+class RenderSystem(BaseSystem):
+    def __init__(self, *args: tuple, **kwargs: dict) -> None:
+        super().__init__(*args, **kwargs)
+
+    def update(self, dt: float) -> None:
+        engine = self.engine
+        engine.screen.fill(WHITE)
+
+        drawables = [obj for obj in engine.objects if isinstance(obj, Drawable)]
+        drawables.sort(key=lambda d: d.z_index, reverse=True)
+        for obj in drawables:
+            component = obj.get_component(RenderComponent)
+            component.update(dt)
+            component.draw(engine.screen)
+
+
+class PhysicsSystem(BaseSystem):
+    def __init__(self, *args: tuple, **kwargs: dict) -> None:
+        super().__init__(*args, **kwargs)
+        self.space = pymunk.Space()
+        self.space.gravity = GRAVITY
+        self.space.damping = DAMPING
+        self.space.iterations = PHYSICS_ITERATIONS
+
+        self.steps: int = PHYSICS_STEPS_PER_FRAME
+
+    def add_object(self, obj: PhysicsObject) -> None:
+        self.space.add(obj.body, obj.shape)
+
+    def remove_object(self, obj: PhysicsObject) -> None:
+        self.space.remove(obj.body, obj.shape)
+
+    def update(self, dt: float) -> None:
+        for _ in range(PHYSICS_STEPS_PER_FRAME):
+            self.space.step(dt / PHYSICS_STEPS_PER_FRAME)
+
+
+class LevelSystem(BaseSystem):
+    def __init__(self, *args: tuple, **kwargs: dict) -> None:
+        super().__init__(*args, **kwargs)
+        self.event_mapping = {
+            UserEvent.REQUEST_LEVEL: lambda event: self._generate_level(event.level),
+        }
+
+    def _generate_level(self, level: int) -> None:
+        level_path = f"./levels/level{level}.tmx"
+        data = pytmx.load_pygame(level_path)
+
+        engine = self.engine
+
+        for layer in data.layers:
+            if isinstance(layer, pytmx.TiledImageLayer):
+                bg = UIObject(
+                    sprite=data.images[data.tiledgidmap[(layer.gid)]],
+                    z_index=ZIndex.BACKGROUND,
+                )
+                bg.add_component(RenderComponent())
+                engine.add_object(bg)
+            elif isinstance(layer, pytmx.TiledTileLayer):
+                self._generate_tile_layer(layer, data)
+            elif isinstance(layer, pytmx.TiledObjectGroup):
+                self._generate_object_layer(layer, data)
+
+        engine.current_level = level
+
+    def _generate_tile_layer(
+        self, layer: pytmx.TiledTileLayer, data: pytmx.TiledMap
+    ) -> None:
+        for x, y, gid in layer:
+            properties = data.get_tile_properties_by_gid(gid)
+            if properties is None:
+                continue
+
+            tile_id = properties["id"]
+            if tile_id == 0:
+                continue
+
+            tile = PhysicsObject(
+                body_type=pymunk.Body.STATIC, sprite=data.get_tile_image_by_gid(gid)
+            )
+            tile.body.position = (
+                (x * BLOCK_SIZE) + BLOCK_SIZE / 2,
+                (y * BLOCK_SIZE) + BLOCK_SIZE / 2,
+            )
+            tile.add_component(RenderComponent())
+            self.engine.add_object(tile)
+
+    def _generate_object_layer(
+        self, layer: pytmx.TiledObjectGroup, data: pytmx.TiledMap
+    ) -> None:
+        pass
+
+
+class GameManager:
+    def __init__(self, screen: pygame.Surface) -> None:
+        self.screen = screen
+        self.state: T_State | None = None
+        self.objects: list[T_Object] = []
+        self.current_level: int | None = None
+        self.hovering_object: Drawable | None = None
+
+        self._state_system = StateSystem(self)
+        self._input_system = InputSystem(self)
+        self._level_system = LevelSystem(self)
+        self._physics_system = PhysicsSystem(self)
+        self._render_system = RenderSystem(self)
+
+    def add_object(self, obj: T_Object) -> None:
+        self.objects.append(obj)
+        if isinstance(obj, PhysicsObject):
+            self._physics_system.add_object(obj)
+
+    def remove_object(self, obj: T_Object) -> None:
+        if obj in self.objects:
+            self.objects.remove(obj)
+        if isinstance(obj, PhysicsObject):
+            self._physics_system.remove_object(obj)
+
+    def dispatch_event(self, event: pygame.event.Event) -> None:
+        self._state_system.handle_event(event)
+        self._input_system.handle_event(event)
+        self._level_system.handle_event(event)
+        self._physics_system.handle_event(event)
+        self._render_system.handle_event(event)
+
+    def update(self, dt: float) -> None:
+        self._physics_system.update(dt)
+        self._render_system.update(dt)
+
+    def run(self) -> None:
+        running = True
+        clock = pygame.time.Clock()
+
+        while running:
+            events = pygame.event.get()
+            for event in events:
+                if event.type == pygame.QUIT:
+                    running = False
+                self.dispatch_event(event)
+                events.extend(pygame.event.get())
+
+            dt = clock.tick(FPS) / 1000.0
+
+            self.update(dt)
+            pygame.display.flip()
+
+
 class GameEngine:
     """Main game engine that handles physics, rendering and game state."""
 
     def __init__(self, screen: pygame.Surface) -> GameEngine:
         self.screen = screen
         self.current_level = 1
-        self.game_state = State.MENU
+        self.game_state = BaseState.MENU
 
         self.fade_surface = pygame.Surface((WIDTH, HEIGHT))
         self.fade_surface.fill(WHITE)
@@ -312,11 +795,11 @@ class GameEngine:
                     self._process_object_layer(layer, level_data)
 
             # Switch to playing state
-            self.game_state = State.PLAYING
+            self.game_state = BaseState.PLAYING
 
         except Exception as e:
             print(e)
-            self.game_state = State.LEVEL_SELECT
+            self.game_state = BaseState.LEVEL_SELECT
 
     def _process_tile_layer(
         self,
@@ -385,11 +868,11 @@ class GameEngine:
     def _handle_mouse_click(self, mouse_pos: tuple[int, int]) -> bool:
         """Process mouse click events."""
         match self.game_state:
-            case State.MENU:
+            case BaseState.MENU:
                 return self._handle_menu_click(mouse_pos)
-            case State.LEVEL_SELECT:
+            case BaseState.LEVEL_SELECT:
                 return self._handle_level_select_click(mouse_pos)
-            case State.PLAYING:
+            case BaseState.PLAYING:
                 return self._handle_playing_click(mouse_pos)
 
         return True
@@ -397,7 +880,7 @@ class GameEngine:
     def _handle_menu_click(self, mouse_pos: tuple[int, int]) -> bool:
         if self.start_button_rect.collidepoint(mouse_pos):
             self.fade_transition()
-            self.game_state = State.LEVEL_SELECT
+            self.game_state = BaseState.LEVEL_SELECT
         return True
 
     def _handle_level_select_click(self, mouse_pos: tuple[int, int]) -> bool:
@@ -488,7 +971,7 @@ class GameEngine:
             case "Level Selection":
                 self.fade_transition()
                 self.clear_level()
-                self.game_state = State.LEVEL_SELECT
+                self.game_state = BaseState.LEVEL_SELECT
                 self.sidebar_x = -self.sidebar_width
 
         self.sidebar_visible = False
@@ -530,7 +1013,7 @@ class GameEngine:
 
     def update(self) -> None:
         """Update game state and physics."""
-        if self.game_state != State.PLAYING:
+        if self.game_state != BaseState.PLAYING:
             return
 
         if self.sidebar_visible:
@@ -575,7 +1058,7 @@ class GameEngine:
                 self.generate_level(next_level)
             else:
                 self.fade_transition()
-                self.game_state = State.MENU
+                self.game_state = BaseState.MENU
 
     def render(self) -> None:
         """Render game objects to screen."""
@@ -583,11 +1066,11 @@ class GameEngine:
         self.screen.fill(WHITE)
 
         match self.game_state:
-            case State.MENU:
+            case BaseState.MENU:
                 self._render_menu()
-            case State.LEVEL_SELECT:
+            case BaseState.LEVEL_SELECT:
                 self._render_level_select()
-            case State.PLAYING:
+            case BaseState.PLAYING:
                 self._render_game()
                 self._render_sidebar()
 
@@ -1334,10 +1817,10 @@ def main() -> None:
     )
     pygame.display.set_caption("ChessFormer: Unbound")
 
-    game = GameEngine(screen)
+    game = GameManager(screen)
 
     # Run game loop
-    game.run_game_loop()
+    game.run()
 
     pygame.quit()
 
