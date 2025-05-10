@@ -125,47 +125,50 @@ class LevelSelectState(BaseState):
 class PlayingState(BaseState):
     @staticmethod
     def on_enter(engine: GameManager) -> None:
+        sidebar_target_x = -300
+        sidebar_enabled = False
+
         sidebar = UIObject(
             sprite=pygame.image.load("./menu_assets/sidebar_bg.png"), z_index=ZIndex.HUD
         )
         sidebar.position = (-300, 0)
-        sidebar.target_x = -300
         sidebar_component = RenderComponent()
 
-        def update(self: RenderComponent, dt: float) -> None:
+        def update(self: RenderComponent[UIObject], dt: float) -> None:
+            nonlocal sidebar_target_x
             owner = self.owner
             x, y = owner.position
-            if x > owner.target_x:
-                owner.position = (max(owner.target_x, x - 16), y)
+            if x > sidebar_target_x:
+                owner.position = (max(sidebar_target_x, x - 16), y)
             else:
-                owner.position = (min(owner.target_x, x + 16), y)
+                owner.position = (min(sidebar_target_x, x + 16), y)
 
         sidebar_component.update = types.MethodType(update, sidebar_component)
-
         sidebar.add_component(sidebar_component)
         engine.add_object(sidebar)
 
+        # Sidebar toggle button
         sidebar_button = UIObject(
             sprite=pygame.image.load("./menu_assets/sidebar_icon.png"),
             z_index=ZIndex.HUD - 1,
         )
-        sidebar_button.enabled = False
         sidebar_button.position = (10, 10)
 
-        def sidebar_button_down(
-            self: UIObject, button: int, sidebar: UIObject = sidebar
-        ) -> None:
+        def sidebar_button_down(self: UIObject, button: int) -> None:
             if button != 1:
                 return
 
-            if self.enabled:
+            nonlocal sidebar_enabled
+            nonlocal sidebar_target_x
+
+            if sidebar_enabled:
                 self.set_sprite(pygame.image.load("./menu_assets/sidebar_icon.png"))
-                self.enabled = False
-                sidebar.target_x = -300
+                sidebar_enabled = False
+                sidebar_target_x = -300
             else:
                 self.set_sprite(pygame.image.load("./menu_assets/x_sidebar.png"))
-                self.enabled = True
-                sidebar.target_x = 0
+                sidebar_enabled = True
+                sidebar_target_x = 0
 
         sidebar_button.on_mouse_down = types.MethodType(
             sidebar_button_down, sidebar_button
