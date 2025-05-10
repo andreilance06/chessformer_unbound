@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 import math
+import types
 from enum import IntEnum, auto
 
 import pygame
@@ -124,7 +125,53 @@ class LevelSelectState(BaseState):
 class PlayingState(BaseState):
     @staticmethod
     def on_enter(engine: GameManager) -> None:
-        pass
+        sidebar = UIObject(
+            sprite=pygame.image.load("./menu_assets/sidebar_bg.png"), z_index=ZIndex.HUD
+        )
+        sidebar.position = (-300, 0)
+        sidebar.target_x = -300
+        sidebar_component = RenderComponent()
+
+        def update(self: RenderComponent, dt: float) -> None:
+            owner = self.owner
+            x, y = owner.position
+            if x > owner.target_x:
+                owner.position = (max(owner.target_x, x - 16), y)
+            else:
+                owner.position = (min(owner.target_x, x + 16), y)
+
+        sidebar_component.update = types.MethodType(update, sidebar_component)
+
+        sidebar.add_component(sidebar_component)
+        engine.add_object(sidebar)
+
+        sidebar_button = UIObject(
+            sprite=pygame.image.load("./menu_assets/sidebar_icon.png"),
+            z_index=ZIndex.HUD - 1,
+        )
+        sidebar_button.enabled = False
+        sidebar_button.position = (10, 10)
+
+        def sidebar_button_down(
+            self: UIObject, button: int, sidebar: UIObject = sidebar
+        ) -> None:
+            if button != 1:
+                return
+
+            if self.enabled:
+                self.set_sprite(pygame.image.load("./menu_assets/sidebar_icon.png"))
+                self.enabled = False
+                sidebar.target_x = -300
+            else:
+                self.set_sprite(pygame.image.load("./menu_assets/x_sidebar.png"))
+                self.enabled = True
+                sidebar.target_x = 0
+
+        sidebar_button.on_mouse_down = types.MethodType(
+            sidebar_button_down, sidebar_button
+        )
+        sidebar_button.add_component(RenderComponent())
+        engine.add_object(sidebar_button)
 
 
 class UserEvent(IntEnum):
@@ -200,6 +247,10 @@ class Drawable(BaseObject):
         self.sprite = sprite and self._sprite.copy()
         self.offset = offset
         self.z_index = z_index
+
+    def set_sprite(self, sprite: pygame.Surface) -> None:
+        self._sprite = sprite
+        self.sprite = self._sprite.copy()
 
     def get_position(self) -> tuple[int, int]:
         raise NotImplementedError
