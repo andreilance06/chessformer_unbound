@@ -355,19 +355,23 @@ class StateSystem(BaseSystem):
 class InputSystem(BaseSystem):
     def __init__(self, *args: tuple, **kwargs: dict) -> None:
         super().__init__(*args, **kwargs)
+        self.active = True
         self.event_mapping: dict[int, Callable] = {
-            pygame.MOUSEMOTION: lambda event: self._on_mouse_moved(event.pos),
             pygame.MOUSEBUTTONDOWN: lambda event: self._on_mouse_down(event.button),
             pygame.MOUSEBUTTONUP: lambda event: self._on_mouse_up(event.button),
+            pygame.WINDOWENTER: lambda _: self._on_window_enter(),
             pygame.WINDOWLEAVE: lambda _: self._on_window_leave(),
         }
 
-    def _on_mouse_moved(self, pos: tuple[int, int]) -> None:
+    def update(self, dt: float) -> None:
+        if self.active is False:
+            return
+
         engine = self.engine
         hovering_objs = (
             obj
             for obj in engine.objects
-            if isinstance(obj, Drawable) and obj.is_hover(pos)
+            if isinstance(obj, Drawable) and obj.is_hover(pygame.mouse.get_pos())
         )
         hovering = min(hovering_objs, key=lambda obj: obj.z_index, default=None)
 
@@ -388,10 +392,14 @@ class InputSystem(BaseSystem):
         if self.engine.hovering_object is not None:
             self.engine.hovering_object.on_mouse_up(button)
 
+    def _on_window_enter(self) -> None:
+        self.active = True
+
     def _on_window_leave(self) -> None:
-        engine = self.engine
-        if engine.hovering_object is not None:
-            engine.hovering_object.on_unhover()
+        self.active = False
+        if self.engine.hovering_object is not None:
+            self.engine.hovering_object.on_unhover()
+            self.engine.hovering_object = None
 
 
 class UISystem(BaseSystem):
@@ -525,6 +533,7 @@ class GameManager:
         self._render_system.handle_event(event)
 
     def update(self, dt: float) -> None:
+        self._input_system.update(dt)
         self._physics_system.update(dt)
         self._render_system.update(dt)
 
