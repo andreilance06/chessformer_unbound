@@ -79,7 +79,10 @@ class GameEngine:
         pygame.mixer_music.load("./audio/game_music.mp3")
         pygame.mixer_music.set_volume(0)
         pygame.mixer_music.play(loops=-1, fade_ms=5000)
-        pygame.mixer_music.set_volume(0.10)
+        pygame.mixer_music.set_volume(0.50)
+
+        self.move_sound = pygame.mixer.Sound("./audio/move_sound.wav")
+        self.move_sound.set_volume(0.25)
 
         # Game elements
         self.backgrounds: list[pygame.Surface] = []
@@ -314,10 +317,12 @@ class GameEngine:
 
             # Switch to playing state
             self.game_state = State.PLAYING
+            pygame.mixer_music.set_volume(0.25)
 
         except Exception as e:
             print(e)
             self.game_state = State.LEVEL_SELECT
+            pygame.mixer_music.set_volume(0.50)
 
     def _process_tile_layer(
         self,
@@ -399,6 +404,7 @@ class GameEngine:
         if self.start_button_rect.collidepoint(mouse_pos):
             self.fade_transition()
             self.game_state = State.LEVEL_SELECT
+            pygame.mixer_music.set_volume(0.50)
         return True
 
     def _handle_level_select_click(self, mouse_pos: tuple[int, int]) -> bool:
@@ -470,6 +476,8 @@ class GameEngine:
 
             if not moved:
                 self.selected = None
+            else:
+                self.move_sound.play()
 
         # Check if clicked on a piece
         if self.selected is None and not moved:
@@ -490,6 +498,7 @@ class GameEngine:
                 self.fade_transition()
                 self.clear_level()
                 self.game_state = State.LEVEL_SELECT
+                pygame.mixer_music.set_volume(0.50)
                 self.sidebar_x = -self.sidebar_width
 
         self.sidebar_visible = False
@@ -579,6 +588,7 @@ class GameEngine:
             else:
                 self.fade_transition()
                 self.game_state = State.MENU
+                pygame.mixer_music.set_volume(0.50)
 
     def render(self) -> None:
         """Render game objects to screen."""
