@@ -90,6 +90,7 @@ class GameEngine:
         self.move_indicators: list[MovementIndicator] = []
 
         # Initialize physics
+        self.time_speed = 1.0
         self.space = pymunk.Space()
         self.space.gravity = GRAVITY
         self.space.damping = DAMPING
@@ -542,7 +543,7 @@ class GameEngine:
             )
 
         # Step physics
-        dt = 1.0 / FPS
+        dt = self.time_speed / FPS
         steps = 100
         for _ in range(steps):
             self.space.step(dt / steps)
@@ -560,11 +561,13 @@ class GameEngine:
         parts.extend(self.kinematics)
         parts.extend(self.statics)
         if self.selected:
+            self.time_speed = 1 / 3
             self.move_indicators = self.selected.calculate_move_indicators(
                 self.space, parts
             )
         else:
             self.move_indicators.clear()
+            self.time_speed = 1
 
         # Check win condition
         if self.is_win_condition():
