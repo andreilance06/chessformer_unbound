@@ -42,7 +42,9 @@ PHYSICS_ITERATIONS = int(6000 / FPS)
 # Game states
 class State(IntEnum):
     MENU = auto()
+    MODE_SELECT = auto()  # <-- Add this
     LEVEL_SELECT = auto()
+    TUTORIAL = auto()  # <-- Add this
     PLAYING = auto()
 
 
@@ -66,7 +68,7 @@ class MovementIndicator(NamedTuple):
 class GameEngine:
     """Main game engine that handles physics, rendering and game state."""
 
-    def __init__(self, screen: pygame.Surface) -> GameEngine:
+    def __init__(self, screen: pygame.Surface) -> None:
         self.screen = screen
         self.current_level = 1
         self.game_state = State.MENU
@@ -109,12 +111,31 @@ class GameEngine:
         # Menu elements
         self.start_bg = pygame.image.load("menu_assets/start_bg.png")
         self.level_select_bg = pygame.image.load("menu_assets/level_bg.png")
-        self.start_button = pygame.image.load("menu_assets/play_btn.png")
+        self.start_button = pygame.transform.scale(
+            pygame.image.load("menu_assets/play_btn.png"), (150, 150)
+        )
+        self.upper_mode = pygame.image.load("menu_assets/upper_mode.png")
+        self.lower_mode = pygame.image.load("menu_assets/lower_mode.png")
+
+        self.start_button_rect = self.start_button.get_rect(center=(500, 325))
+        self.upper_rect = pygame.Rect(0, 0, WIDTH, HEIGHT // 2)
+        self.lower_rect = pygame.Rect(0, HEIGHT // 2, WIDTH, HEIGHT // 2)
+
+        self.tutorial_images = [
+            pygame.image.load("story_assets/story1.png"),
+            pygame.image.load("story_assets/story2.png"),
+            pygame.image.load("story_assets/story3.png"),
+            pygame.image.load("story_assets/story4.png"),
+            pygame.image.load("story_assets/story5.png"),
+        ]
+        self.tutorial_slide = 0
+        self.total_tutorial_slides = len(self.tutorial_images)
+        self.tutorial_left_half = pygame.Rect(0, 0, WIDTH // 2, HEIGHT)
+        self.tutorial_right_half = pygame.Rect(WIDTH // 2, 0, WIDTH // 2, HEIGHT)
 
         self.sidebar_icon1 = pygame.image.load(
             "menu_assets/sidebar_icon.png",
         ).convert_alpha()
-        self.start_button_rect = self.start_button.get_rect(center=(750, 420))
         self.sidebar_rect = pygame.Rect((10, 10), self.sidebar_icon1.get_size())
         self.sidebar_icon2 = pygame.image.load(
             "menu_assets/x_sidebar.png",
@@ -385,19 +406,46 @@ class GameEngine:
                     running = self._handle_mouse_motion(event.pos)
                 case pygame.KEYDOWN:
                     running = self._handle_keydown(event.key)
-
         return running
 
     def _handle_mouse_click(self, mouse_pos: tuple[int, int]) -> bool:
         """Process mouse click events."""
         match self.game_state:
             case State.MENU:
-                return self._handle_menu_click(mouse_pos)
+                if self.start_button_rect.collidepoint(mouse_pos):
+                    self.fade_transition()
+                    self.game_state = State.MODE_SELECT
+                    pygame.mixer_music.set_volume(0.50)
+            case State.MODE_SELECT:
+                if self.upper_rect.collidepoint(mouse_pos):
+                    self.fade_transition()
+                    self.game_state = State.LEVEL_SELECT
+                elif self.lower_rect.collidepoint(mouse_pos):
+                    self.fade_transition()
+                    self.game_state = State.TUTORIAL
             case State.LEVEL_SELECT:
-                return self._handle_level_select_click(mouse_pos)
+                for i, (_, rect) in enumerate(self.level_buttons):
+                    if rect.collidepoint(mouse_pos):
+                        self.fade_transition()
+                        self.clear_level()
+                        self.generate_level(i + 1)
+                        break
+            case State.TUTORIAL:
+                # Scroll tutorial slides
+                if self.tutorial_right_half.collidepoint(mouse_pos):
+                    if self.tutorial_slide < self.total_tutorial_slides - 1:
+                        self._fade_tutorial_slide()
+                        self.tutorial_slide += 1
+                    else:
+                        self._fade_tutorial_slide()
+                        self.tutorial_slide = 0
+                        self.game_state = State.MENU
+                elif self.tutorial_left_half.collidepoint(mouse_pos):
+                    if self.tutorial_slide > 0:
+                        self._fade_tutorial_slide()
+                        self.tutorial_slide -= 1
             case State.PLAYING:
                 return self._handle_playing_click(mouse_pos)
-
         return True
 
     def _handle_menu_click(self, mouse_pos: tuple[int, int]) -> bool:
@@ -521,8 +569,26 @@ class GameEngine:
 
         return True
 
-    def _handle_keydown(self, _key: int) -> bool:
+    def _handle_keydown(self, key: int) -> bool:
+        if self.game_state == State.TUTORIAL:
+            if (
+                key == pygame.K_RETURN
+                and self.tutorial_slide == self.total_tutorial_slides - 1
+            ):
+                self._fade_tutorial_slide()
+                self.tutorial_slide = 0
+                self.game_state = State.MENU
         return True
+
+    def _fade_tutorial_slide(self, color=(255, 255, 255), speed=25):
+        fade_surface = pygame.Surface((WIDTH, HEIGHT))
+        fade_surface.fill(color)
+        for alpha in range(0, 255, speed):
+            fade_surface.set_alpha(alpha)
+            self.screen.blit(self.tutorial_images[self.tutorial_slide], (0, 0))
+            self.screen.blit(fade_surface, (0, 0))
+            pygame.display.flip()
+            pygame.time.delay(10)
 
     def fade_transition(self, duration_ms: int = 400) -> None:
         """Create a fade transition effect."""
@@ -598,8 +664,12 @@ class GameEngine:
         match self.game_state:
             case State.MENU:
                 self._render_menu()
+            case State.MODE_SELECT:
+                self._render_mode_select()
             case State.LEVEL_SELECT:
                 self._render_level_select()
+            case State.TUTORIAL:
+                self._render_tutorial()
             case State.PLAYING:
                 self._render_game()
                 self._render_sidebar()
@@ -613,6 +683,38 @@ class GameEngine:
     def _render_menu(self) -> None:
         self.screen.blit(self.start_bg, (0, 0))
         self.screen.blit(self.start_button, self.start_button_rect)
+
+    def _render_mode_select(self) -> None:
+        mouse_pos = pygame.mouse.get_pos()
+        upper_color = (0, 0, 0)
+        lower_color = (187, 150, 255)
+        pygame.draw.rect(self.screen, upper_color, self.upper_rect)
+        pygame.draw.rect(self.screen, lower_color, self.lower_rect)
+        if self.upper_rect.collidepoint(mouse_pos):
+            self.screen.blit(self.upper_mode, self.upper_rect)
+        if self.lower_rect.collidepoint(mouse_pos):
+            self.screen.blit(self.lower_mode, self.lower_rect)
+
+    def _render_tutorial(self) -> None:
+        # Draw current tutorial slide
+        self.screen.blit(self.tutorial_images[self.tutorial_slide], (0, 0))
+        # Optionally, draw navigation hints
+        font = self.hud_font
+        if self.tutorial_slide > 0:
+            left_hint = font.render("<- Back", True, (255, 255, 255))
+            self.screen.blit(left_hint, (20, HEIGHT - 40))
+        if self.tutorial_slide < self.total_tutorial_slides - 1:
+            right_hint = font.render("Next ->", True, (255, 255, 255))
+            self.screen.blit(
+                right_hint, (WIDTH - right_hint.get_width() - 20, HEIGHT - 40)
+            )
+        else:
+            end_hint = font.render(
+                "Click right or press Enter to return", True, (255, 255, 255)
+            )
+            self.screen.blit(
+                end_hint, (WIDTH // 2 - end_hint.get_width() // 2, HEIGHT - 40)
+            )
 
     def _render_level_select(self) -> None:
         self.screen.blit(self.level_select_bg, (0, 0))
