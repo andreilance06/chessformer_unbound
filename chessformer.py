@@ -145,7 +145,7 @@ class GameEngine:
         ).convert_alpha()
 
         # Menu options and state
-        self.sidebar_options = ["Restart", "Level Selection", "Exit"]
+        self.sidebar_options = ["Restart", "Level Selection", "Exit to menu", "Exit"]
         self.sidebar_font = pygame.font.SysFont("twcen", 25)
         self.sidebar_visible = False
         self.sidebar_width = 300
@@ -539,6 +539,11 @@ class GameEngine:
         match option:
             case "Exit":
                 return False
+            case "Exit to menu":
+                self.fade_transition()
+                self.clear_level()
+                self.game_state = State.MENU
+                pygame.mixer_music.set_volume(0.50)
             case "Restart":
                 self.clear_level()
                 self.generate_level(self.current_level)
