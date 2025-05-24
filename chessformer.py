@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 import math
-from enum import IntEnum, auto
+from enum import Enum, IntEnum, auto
 
 import pygame
 import pymunk
@@ -41,10 +41,12 @@ PHYSICS_ITERATIONS = int(6000 / FPS)
 
 # Game states
 class State(IntEnum):
-    MENU = auto()
-    MODE_SELECT = auto()  # <-- Add this
+    TITLE = auto()
+    MENU_SELECT = auto()
+    TUTORIAL = auto()
+    MODE_SELECT = auto()
     LEVEL_SELECT = auto()
-    TUTORIAL = auto()  # <-- Add this
+    ABOUT = auto()
     PLAYING = auto()
 
 
@@ -65,18 +67,42 @@ class MovementIndicator(NamedTuple):
     obstacle: Part
 
 
+class GameMode(Enum):
+    CLASSIC = auto()
+    TIME_LIMIT = auto()
+    TURN_LIMIT = auto()
+
+
+def point_in_polygon(point, polygon):
+    x, y = point
+    inside = False
+    j = len(polygon) - 1
+    for i in range(len(polygon)):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if ((yi > y) != (yj > y)) and (
+            x < (xj - xi) * (y - yi) / ((yj - yi) + 1e-6) + xi
+        ):
+            inside = not inside
+        j = i
+    return inside
+
+
 class GameEngine:
     """Main game engine that handles physics, rendering and game state."""
 
     def __init__(self, screen: pygame.Surface) -> None:
         self.screen = screen
         self.current_level = 1
-        self.game_state = State.MENU
+        self.game_state = State.TITLE
 
         self.fade_surface = pygame.Surface((WIDTH, HEIGHT))
         self.fade_surface.fill(WHITE)
         self.fade_alpha = 0
         self.fade_step = 0
+
+        self.time_limit = None
+        self.turn_limit = None
 
         pygame.mixer_music.load("./audio/game_music.mp3")
         pygame.mixer_music.set_volume(0)
@@ -111,15 +137,25 @@ class GameEngine:
         # Menu elements
         self.start_bg = pygame.image.load("menu_assets/start_bg.png")
         self.level_select_bg = pygame.image.load("menu_assets/level_bg.png")
+        self.mode_select_bg = pygame.image.load("menu_assets/mode_bg.png")
+        self.about_us_bg = pygame.image.load("menu_assets/about_us.png")
         self.start_button = pygame.transform.scale(
             pygame.image.load("menu_assets/play_btn.png"), (150, 150)
         )
-        self.upper_mode = pygame.image.load("menu_assets/upper_mode.png")
-        self.lower_mode = pygame.image.load("menu_assets/lower_mode.png")
+
+        self.left_img = pygame.image.load("menu_assets/left_mode.png")
+        self.middle_img = pygame.image.load("menu_assets/middle_mode.png")
+        self.right_img = pygame.image.load("menu_assets/right_mode.png")
+
+        self.left_zone = [(0, 0), (275, 0), (328, HEIGHT), (0, HEIGHT)]
+        self.middle_zone = [(275, 0), (722, 0), (670, HEIGHT), (328, HEIGHT)]
+        self.right_zone = [(722, 0), (1000, 0), (1000, HEIGHT), (670, HEIGHT)]
+
+        self.classic_img = pygame.image.load("menu_assets/classic_mode.png")
+        self.time_limit_img = pygame.image.load("menu_assets/time_bound_mode.png")
+        self.turn_limit_img = pygame.image.load("menu_assets/limited_moves_mode.png")
 
         self.start_button_rect = self.start_button.get_rect(center=(500, 325))
-        self.upper_rect = pygame.Rect(0, 0, WIDTH, HEIGHT // 2)
-        self.lower_rect = pygame.Rect(0, HEIGHT // 2, WIDTH, HEIGHT // 2)
 
         self.tutorial_images = [
             pygame.image.load("story_assets/story1.png"),
@@ -159,6 +195,8 @@ class GameEngine:
             btn_img = pygame.image.load(f"menu_assets/lvl{i}_btn.png")
             btn_rect = btn_img.get_rect()
             self.level_buttons.append((btn_img, btn_rect))
+
+        self.max_unlocked_level = 1
 
         # Position level buttons
         start_x = 100
@@ -247,9 +285,6 @@ class GameEngine:
             self.kinematics.remove(part)
         elif part in self.dynamics:
             self.dynamics.remove(part)
-        else:
-            msg = "Part not found!"
-            # RuntimeError(msg)
 
         if part.body in self.space.bodies and part.shape in self.space.shapes:
             self.space.remove(part.body, part.shape)
@@ -326,6 +361,11 @@ class GameEngine:
         level_path = f"./levels/level{level_num}.tmx"
         try:
             level_data = pytmx.load_pygame(level_path)
+            self.time_limit = level_data.properties.get("time_limit")
+            self.time_left = self.time_limit
+            self.last_tick = pygame.time.get_ticks()
+            self.turn_limit = level_data.properties.get("turns")
+            self.turns_left = self.turn_limit
             for layer in level_data.layers:
                 if isinstance(layer, pytmx.TiledImageLayer):
                     self.backgrounds.append(
@@ -411,25 +451,22 @@ class GameEngine:
     def _handle_mouse_click(self, mouse_pos: tuple[int, int]) -> bool:
         """Process mouse click events."""
         match self.game_state:
-            case State.MENU:
+            case State.TITLE:
                 if self.start_button_rect.collidepoint(mouse_pos):
                     self.fade_transition()
-                    self.game_state = State.MODE_SELECT
+                    self.game_state = State.MENU_SELECT
                     pygame.mixer_music.set_volume(0.50)
-            case State.MODE_SELECT:
-                if self.upper_rect.collidepoint(mouse_pos):
-                    self.fade_transition()
-                    self.game_state = State.LEVEL_SELECT
-                elif self.lower_rect.collidepoint(mouse_pos):
+            case State.MENU_SELECT:
+                if point_in_polygon(mouse_pos, self.left_zone):
                     self.fade_transition()
                     self.game_state = State.TUTORIAL
-            case State.LEVEL_SELECT:
-                for i, (_, rect) in enumerate(self.level_buttons):
-                    if rect.collidepoint(mouse_pos):
-                        self.fade_transition()
-                        self.clear_level()
-                        self.generate_level(i + 1)
-                        break
+                elif point_in_polygon(mouse_pos, self.middle_zone):
+                    self.fade_transition()
+                    self.game_state = State.MODE_SELECT
+                elif point_in_polygon(mouse_pos, self.right_zone):
+                    self.fade_transition()
+                    self.game_state = State.ABOUT
+
             case State.TUTORIAL:
                 # Scroll tutorial slides
                 if self.tutorial_right_half.collidepoint(mouse_pos):
@@ -439,13 +476,45 @@ class GameEngine:
                     else:
                         self.fade_transition()
                         self.tutorial_slide = 0
-                        self.game_state = State.MENU
+                        self.game_state = State.MENU_SELECT
                 elif self.tutorial_left_half.collidepoint(mouse_pos):
                     if self.tutorial_slide > 0:
                         self.fade_transition()
                         self.tutorial_slide -= 1
+            case State.MODE_SELECT:
+                if self.classic_img.get_rect(topleft=(50, 200)).collidepoint(mouse_pos):
+                    self.fade_transition()
+                    self.game_mode = GameMode.CLASSIC
+                    self.game_state = State.LEVEL_SELECT
+                    pygame.mixer_music.set_volume(0.25)
+                elif self.time_limit_img.get_rect(topleft=(350, 200)).collidepoint(
+                    mouse_pos
+                ):
+                    self.fade_transition()
+                    self.game_mode = GameMode.TIME_LIMIT
+                    self.game_state = State.LEVEL_SELECT
+                    pygame.mixer_music.set_volume(0.25)
+                elif self.turn_limit_img.get_rect(topleft=(650, 200)).collidepoint(
+                    mouse_pos
+                ):
+                    self.fade_transition()
+                    self.game_mode = GameMode.TURN_LIMIT
+                    self.game_state = State.LEVEL_SELECT
+                    pygame.mixer_music.set_volume(0.25)
+            case State.LEVEL_SELECT:
+                for i, (_, rect) in enumerate(self.level_buttons):
+                    if i + 1 <= self.max_unlocked_level and rect.collidepoint(
+                        mouse_pos
+                    ):
+                        self.fade_transition()
+                        self.clear_level()
+                        self.generate_level(i + 1)
+                        break
+            case State.ABOUT:
+                self.fade_transition()
+                self.game_state = State.MENU_SELECT
             case State.PLAYING:
-                return self._handle_playing_click(mouse_pos)
+                self._handle_playing_click(mouse_pos)
         return True
 
     def _handle_menu_click(self, mouse_pos: tuple[int, int]) -> bool:
@@ -525,12 +594,20 @@ class GameEngine:
             if not moved:
                 self.selected = None
             else:
+                if self.game_mode == GameMode.TURN_LIMIT:
+                    self.turns_left -= 1
                 self.move_sound.play()
 
         # Check if clicked on a piece
         if self.selected is None and not moved:
             for piece in self.dynamics:
                 if not piece.enemy and piece.rect.collidepoint(mouse_pos):
+                    if self.game_mode == GameMode.TURN_LIMIT:
+                        if self.turns_left <= 0:
+                            continue
+                    if self.game_mode == GameMode.TIME_LIMIT:
+                        if self.time_left <= 0:
+                            continue
                     self.selected = piece
                     break
         return True
@@ -540,11 +617,16 @@ class GameEngine:
             case "Exit to menu":
                 self.fade_transition()
                 self.clear_level()
-                self.game_state = State.MENU
+                self.game_state = State.TITLE
                 pygame.mixer_music.set_volume(0.50)
             case "Restart":
                 self.clear_level()
                 self.generate_level(self.current_level)
+                if self.game_mode == GameMode.TIME_LIMIT:
+                    self.time_left = self.time_limit
+                    self.last_tick = pygame.time.get_ticks()
+                elif self.game_mode == GameMode.TURN_LIMIT:
+                    self.turns_left = self.turn_limit
             case "Level Selection":
                 self.fade_transition()
                 self.clear_level()
@@ -580,7 +662,7 @@ class GameEngine:
             ):
                 self.fade_transition()
                 self.tutorial_slide = 0
-                self.game_state = State.MENU
+                self.game_state = State.TITLE
         return True
 
     def fade_transition(self, duration_ms: int = 400) -> None:
@@ -601,6 +683,12 @@ class GameEngine:
         """Update game state and physics."""
         if self.game_state != State.PLAYING:
             return
+
+        if self.game_mode == GameMode.TIME_LIMIT:
+            now = pygame.time.get_ticks()
+            elapsed = (now - self.last_tick) / 1000
+            self.last_tick = now
+            self.time_left = max(self.time_left - elapsed, 0)
 
         if self.sidebar_visible:
             self.sidebar_x = min(0, self.sidebar_x + self.sidebar_speed)
@@ -639,14 +727,25 @@ class GameEngine:
 
         # Check win condition
         if self.is_win_condition():
+            if (
+                self.current_level == self.max_unlocked_level
+                and self.max_unlocked_level < len(self.level_buttons)
+            ):
+                self.max_unlocked_level += 1
             self.clear_level()
             next_level = self.current_level + 1
             if next_level <= 10:  # Assuming 10 levels max
                 self.fade_transition()
                 self.generate_level(next_level)
+                # Reset mode counters for new level
+                if self.game_mode == GameMode.TIME_LIMIT:
+                    self.time_left = self.time_limit
+                    self.last_tick = pygame.time.get_ticks()
+                elif self.game_mode == GameMode.TURN_LIMIT:
+                    self.turns_left = self.turn_limit
             else:
                 self.fade_transition()
-                self.game_state = State.MENU
+                self.game_state = State.TITLE
                 pygame.mixer_music.set_volume(0.50)
 
     def render(self) -> None:
@@ -655,14 +754,18 @@ class GameEngine:
         self.screen.fill(WHITE)
 
         match self.game_state:
-            case State.MENU:
-                self._render_menu()
+            case State.TITLE:
+                self._render_title()
+            case State.MENU_SELECT:
+                self._render_menu_select()
+            case State.TUTORIAL:
+                self._render_tutorial()
             case State.MODE_SELECT:
                 self._render_mode_select()
             case State.LEVEL_SELECT:
                 self._render_level_select()
-            case State.TUTORIAL:
-                self._render_tutorial()
+            case State.ABOUT:
+                self._render_about()
             case State.PLAYING:
                 self._render_game()
                 self._render_sidebar()
@@ -673,20 +776,28 @@ class GameEngine:
 
         pygame.display.flip()
 
-    def _render_menu(self) -> None:
+    def _render_title(self) -> None:
         self.screen.blit(self.start_bg, (0, 0))
         self.screen.blit(self.start_button, self.start_button_rect)
 
-    def _render_mode_select(self) -> None:
+    def _render_menu_select(self) -> None:
         mouse_pos = pygame.mouse.get_pos()
-        upper_color = (0, 0, 0)
-        lower_color = (187, 150, 255)
-        pygame.draw.rect(self.screen, upper_color, self.upper_rect)
-        pygame.draw.rect(self.screen, lower_color, self.lower_rect)
-        if self.upper_rect.collidepoint(mouse_pos):
-            self.screen.blit(self.upper_mode, self.upper_rect)
-        if self.lower_rect.collidepoint(mouse_pos):
-            self.screen.blit(self.lower_mode, self.lower_rect)
+
+        if point_in_polygon(mouse_pos, self.left_zone):
+            pygame.draw.polygon(self.screen, BLACK, self.middle_zone)
+            pygame.draw.polygon(self.screen, PURPLE, self.right_zone)
+            rect = self.left_img.get_rect(center=(500, HEIGHT // 2))
+            self.screen.blit(self.left_img, rect)
+        elif point_in_polygon(mouse_pos, self.middle_zone):
+            pygame.draw.polygon(self.screen, PURPLE, self.left_zone)
+            pygame.draw.polygon(self.screen, PURPLE, self.right_zone)
+            rect = self.middle_img.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+            self.screen.blit(self.middle_img, rect)
+        elif point_in_polygon(mouse_pos, self.right_zone):
+            pygame.draw.polygon(self.screen, PURPLE, self.left_zone)
+            pygame.draw.polygon(self.screen, BLACK, self.middle_zone)
+            rect = self.right_img.get_rect(center=(500, HEIGHT // 2))
+            self.screen.blit(self.right_img, rect)
 
     def _render_tutorial(self) -> None:
         # Draw current tutorial slide
@@ -709,10 +820,55 @@ class GameEngine:
                 end_hint, (WIDTH // 2 - end_hint.get_width() // 2, HEIGHT - 40)
             )
 
+    def _render_mode_select(self) -> None:
+        self.screen.blit(self.mode_select_bg, (0, 0))
+
+        # Draw mode buttons
+        self.screen.blit(self.classic_img, (50, 200))
+        self.screen.blit(self.time_limit_img, (350, 200))
+        self.screen.blit(self.turn_limit_img, (650, 200))
+        # Highlight selected mode
+        mouse_pos = pygame.mouse.get_pos()
+        if self.classic_img.get_rect(topleft=(50, 200)).collidepoint(mouse_pos):
+            pygame.draw.rect(
+                self.screen,
+                PURPLE,
+                (50, 200, self.classic_img.get_width(), self.classic_img.get_height()),
+                5,
+            )
+        elif self.time_limit_img.get_rect(topleft=(350, 200)).collidepoint(mouse_pos):
+            pygame.draw.rect(
+                self.screen,
+                PURPLE,
+                (
+                    350,
+                    200,
+                    self.time_limit_img.get_width(),
+                    self.time_limit_img.get_height(),
+                ),
+                5,
+            )
+        elif self.turn_limit_img.get_rect(topleft=(650, 200)).collidepoint(mouse_pos):
+            pygame.draw.rect(
+                self.screen,
+                PURPLE,
+                (
+                    650,
+                    200,
+                    self.turn_limit_img.get_width(),
+                    self.turn_limit_img.get_height(),
+                ),
+                5,
+            )
+
     def _render_level_select(self) -> None:
         self.screen.blit(self.level_select_bg, (0, 0))
-        for img, rect in self.level_buttons:
-            self.screen.blit(img, rect)
+        for i, (img, rect) in enumerate(self.level_buttons):
+            if i + 1 <= self.max_unlocked_level:
+                self.screen.blit(img, rect)
+
+    def _render_about(self) -> None:
+        self.screen.blit(self.about_us_bg, (0, 0))
 
     def _render_game(self) -> None:
         # Create transparent surface for indicators
@@ -752,6 +908,18 @@ class GameEngine:
             BLACK,
         )
         self.screen.blit(level_text, (WIDTH - level_text.get_width() - 10, 10))
+
+        # Display mode info
+        if self.game_mode == GameMode.TIME_LIMIT:
+            timer_text = self.hud_font.render(f"Time: {int(self.time_left)}", True, RED)
+            if self.time_left == 0:
+                timer_text = self.hud_font.render("Time's up!", True, RED)
+            self.screen.blit(timer_text, (460, 15))
+        elif self.game_mode == GameMode.TURN_LIMIT:
+            turn_text = self.hud_font.render(f"Turns: {self.turns_left}", True, RED)
+            if self.turns_left <= 0:
+                turn_text = self.hud_font.render("No turns left!", True, RED)
+            self.screen.blit(turn_text, (460, 15))
 
     def _render_sidebar(self) -> None:
         self.screen.blit(self.sidebar_bg, (self.sidebar_x, 0))
