@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="20" height="14" tilewidth="50" tileheight="50" infinite="0" nextlayerid="4" nextobjectid="12">
+ <tileset firstgid="1" source="../assets/sprites.tsx"/>
+ <imagelayer id="2" name="background">
+  <image source="../assets/level-bg.png" width="1000" height="700"/>
+ </imagelayer>
+ <layer id="1" name="Tile Layer 1" width="20" height="14">
+  <data encoding="csv">
+16,16,16,16,16,16,16,29,0,0,0,0,0,0,0,0,0,0,23,16,
+16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,23,16,
+16,0,0,0,0,0,0,26,0,0,0,0,0,0,0,0,0,0,23,16,
+16,0,0,0,0,27,0,0,0,0,0,0,22,22,22,22,22,22,23,16,
+16,29,0,26,0,0,0,0,0,27,0,0,16,16,16,16,16,16,16,16,
+16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,23,16,
+16,0,0,0,0,0,0,28,0,0,0,28,0,0,0,0,0,0,23,16,
+16,0,0,0,0,0,28,0,0,0,0,0,28,0,0,0,0,0,23,16,
+16,0,0,0,0,28,0,0,0,0,0,0,0,28,0,0,0,0,23,16,
+16,25,25,25,25,0,0,0,0,0,0,0,0,0,0,22,22,22,23,16,
+16,20,20,20,20,29,0,20,20,20,20,20,20,0,29,20,20,20,20,16,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,
+18,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,14
+</data>
+ </layer>
+ <objectgroup id="3" name="Object Layer 1">
+  <object id="1" gid="4" x="299.54" y="648.763" width="50" height="50"/>
+  <object id="2" gid="4" x="299.54" y="648.763" width="50" height="50"/>
+  <object id="3" gid="4" x="602.139" y="648.763" width="50" height="50"/>
+  <object id="4" gid="5" x="253.83" y="649.677" width="50" height="50"/>
+  <object id="5" gid="5" x="654.248" y="650.591" width="50" height="50"/>
+  <object id="6" gid="3" x="351.649" y="650.591" width="50" height="50"/>
+  <object id="7" gid="3" x="550.944" y="650.591" width="50" height="50"/>
+  <object id="9" gid="2" x="404.672" y="649.396" width="50" height="50"/>
+  <object id="10" gid="2" x="497.92" y="650.31" width="50" height="50"/>
+  <object id="11" gid="1" x="454.039" y="648.482" width="50" height="50"/>
+ </objectgroup>
+</map>

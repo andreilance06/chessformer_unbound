@@ -145,7 +145,7 @@ class GameEngine:
         ).convert_alpha()
 
         # Menu options and state
-        self.sidebar_options = ["Restart", "Level Selection", "Exit to menu", "Exit"]
+        self.sidebar_options = ["Restart", "Level Selection", "Exit to menu"]
         self.sidebar_font = pygame.font.SysFont("twcen", 25)
         self.sidebar_visible = False
         self.sidebar_width = 300
@@ -249,7 +249,7 @@ class GameEngine:
             self.dynamics.remove(part)
         else:
             msg = "Part not found!"
-            raise RuntimeError(msg)
+            # RuntimeError(msg)
 
         if part.body in self.space.bodies and part.shape in self.space.shapes:
             self.space.remove(part.body, part.shape)
@@ -434,15 +434,15 @@ class GameEngine:
                 # Scroll tutorial slides
                 if self.tutorial_right_half.collidepoint(mouse_pos):
                     if self.tutorial_slide < self.total_tutorial_slides - 1:
-                        self._fade_tutorial_slide()
+                        self.fade_transition()
                         self.tutorial_slide += 1
                     else:
-                        self._fade_tutorial_slide()
+                        self.fade_transition()
                         self.tutorial_slide = 0
                         self.game_state = State.MENU
                 elif self.tutorial_left_half.collidepoint(mouse_pos):
                     if self.tutorial_slide > 0:
-                        self._fade_tutorial_slide()
+                        self.fade_transition()
                         self.tutorial_slide -= 1
             case State.PLAYING:
                 return self._handle_playing_click(mouse_pos)
@@ -537,8 +537,6 @@ class GameEngine:
 
     def handle_option_click(self, option: str) -> bool:
         match option:
-            case "Exit":
-                return False
             case "Exit to menu":
                 self.fade_transition()
                 self.clear_level()
@@ -580,20 +578,10 @@ class GameEngine:
                 key == pygame.K_RETURN
                 and self.tutorial_slide == self.total_tutorial_slides - 1
             ):
-                self._fade_tutorial_slide()
+                self.fade_transition()
                 self.tutorial_slide = 0
                 self.game_state = State.MENU
         return True
-
-    def _fade_tutorial_slide(self, color=(255, 255, 255), speed=25):
-        fade_surface = pygame.Surface((WIDTH, HEIGHT))
-        fade_surface.fill(color)
-        for alpha in range(0, 255, speed):
-            fade_surface.set_alpha(alpha)
-            self.screen.blit(self.tutorial_images[self.tutorial_slide], (0, 0))
-            self.screen.blit(fade_surface, (0, 0))
-            pygame.display.flip()
-            pygame.time.delay(10)
 
     def fade_transition(self, duration_ms: int = 400) -> None:
         """Create a fade transition effect."""
